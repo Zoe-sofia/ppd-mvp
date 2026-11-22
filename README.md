@@ -61,6 +61,9 @@ npx serve . -l 8099             # 或 npm run serve:node
   <img src="./docs/images/schedule.png" width="49%" alt="生产排程：硬约束拦截与甘特视图" />
   <img src="./docs/images/material.png" width="49%" alt="物料齐套：五态判定与物料明细" />
 </p>
+<p align="center">
+  <img src="./docs/images/stats.png" width="82%" alt="统计分析：12 项指标口径可查、明细可下钻" />
+</p>
 
 ## 4. 项目结构
 
