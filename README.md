@@ -92,7 +92,8 @@ npx serve . -l 8099             # 或 npm run serve:node
 │  │     └─ ui/
 │  │        ├─ dom.js          #   表格 / 徽标 / 进度条 / 弹窗 / 提示
 │  │        └─ pages/          #   10 个页面，只取数与渲染，不含业务规则
-│  ├─ tests/verify.mjs         # 31 项自动化校验
+│  ├─ tests/verify.mjs         # 31 项算法校验（数量守恒 / 可复现 / 约束拦截）
+│  ├─ tests/io.test.mjs        # 49 项导入导出校验（CSV 解析 / 逐行校验 / 覆盖语义）
 │  ├─ tests/check-syntax.mjs   # 语法门禁
 │  └─ package.json             # 无依赖；仅用于 ESM 与脚本入口
 ├─ docs/                       # 方案文档与界面截图
@@ -114,17 +115,22 @@ npx serve . -l 8099             # 或 npm run serve:node
 
 ```bash
 cd app
-npm test          # node tests/verify.mjs → 通过 31 项，失败 0 项
-npm run check     # 27 个 ES Module 的语法门禁
+npm test          # 31 项算法校验 + 49 项导入导出校验，全部通过
+npm run check     # 28 个 ES Module 的语法门禁
 ```
 
-覆盖：三套场景数据完整性、数量守恒（逐单逐工序）、排产可复现（三次一致）、三套策略输出可区分、
-HC-01~05 逐条构造违规必须被识别、合法计划无硬约束、**约束判定与任务顺序无关**、
+**算法侧**（`tests/verify.mjs`，31 项）：三套场景数据完整性、数量守恒（逐单逐工序）、排产可复现（三次一致）、
+三套策略输出可区分、HC-01~05 逐条构造违规必须被识别、合法计划无硬约束、**约束判定与任务顺序无关**、
 三闸门拒绝超量开工/完工、12 项指标无 NaN、异常覆盖 ≥3 类且去重生效。
+
+**导入导出侧**（`tests/io.test.mjs`，49 项）：模板表头与规格一致、CSV 边界（BOM / CRLF / 引号内逗号 /
+内嵌换行 / 空行）、逐行校验的行号与字段定位（必填 / 枚举 / 数字 / 日期 / 关联不存在 / 文件内重复）、
+主数据按编码覆盖而单据重复即拒绝、导出转义、XLSX 非法输入的失败姿态。
 
 CI 在每次 push / PR 上跑上述两项（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
 
-**未自动化的部分**：页面渲染与弹窗链路（开工 / 完工 / 改派 / 导入 / 版本对比）目前靠手工验收，欢迎补 E2E。
+**未自动化的部分**：页面渲染与弹窗链路（开工 / 完工 / 改派 / 导入 / 版本对比）目前靠手工验收，欢迎补 E2E；
+`parseXlsx` 的正向路径依赖 `DOMParser`，Node 环境只能覆盖其错误路径。
 
 ## 7. 运行环境与依赖
 
@@ -176,6 +182,6 @@ A dependency-free, build-free production planning & delivery management MVP for 
 
 It keeps planning, materials, execution and delivery in one data model: **hard-constraint-first daily scheduling** at the operation level (capacity consumed in physical units, so the plan and the validator can never disagree), **two-level BOM kitting** with a worst-case rule, **quantity reconciliation gates** that block over-reporting, and a **12-metric dictionary** where every number carries its formula and drill-down.
 
-No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`. 31 automated checks (reproducibility, quantity conservation, constraint detection, zero NaN metrics) run on every push via GitHub Actions.
+No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`. 80 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 49 on import/export: CSV edge cases, row-level validation, overwrite-vs-reject semantics) run on every push via GitHub Actions.
 
 Licensed under MIT.

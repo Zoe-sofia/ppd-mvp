@@ -27,7 +27,9 @@
   "scripts": {
     "start": "python -m http.server 8099",
     "serve:node": "npx serve . -l 8099",
-    "test": "node tests/verify.mjs",
-    "check": "node tests/check-syntax.mjs"
+    "test": "node tests/verify.mjs && node tests/io.test.mjs",
+    "check": "node tests/check-syntax.mjs",
+    "verify": "node tests/verify.mjs",
+    "test:io": "node tests/io.test.mjs"
   }
 }

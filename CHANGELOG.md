@@ -6,8 +6,8 @@
 ## [Unreleased]
 
 ### 计划中
-- `io.js` 的 CSV / XLSX 解析与逐行校验补自动化用例（当前仅手工验收）
-- 页面渲染与弹窗链路的 E2E 测试
+- 页面渲染与弹窗链路的 E2E 测试（当前靠手工验收）
+- `parseXlsx` 正向路径的浏览器内测试（依赖 `DOMParser`，Node 环境只能覆盖错误路径）
 - 甘特图拖拽调整
 
 ## [0.1.0] - 2026-11-22
@@ -27,8 +27,10 @@
 
 ### 工程
 - 零依赖静态站点：无构建、无框架、无 CDN，`core/` 不引用 DOM，可直接在 Node 中测试。
-- `tests/verify.mjs`：31 项自动化校验（数量守恒、排产可复现、约束拦截、指标无 NaN 等）。
-- `tests/check-syntax.mjs`：27 个 ES Module 的语法门禁。
+- `tests/verify.mjs`：31 项算法校验（数量守恒、排产可复现、约束拦截、指标无 NaN 等）。
+- `tests/io.test.mjs`：49 项导入导出校验（CSV 边界、逐行校验的行号与字段定位、主数据覆盖 vs 单据拒绝、导出转义、XLSX 非法输入）。
+- `tests/check-syntax.mjs`：28 个 ES Module 的语法门禁。
+- 全量校验合计 80 项，CI 每次 push / PR 执行。
 - GitHub Actions：CI（语法 + 校验）与 GitHub Pages 部署。
 - 键盘可达性：导航支持 Tab / Enter / Space，`aria-current` 标记当前页，弹窗焦点陷阱与关闭后还焦。
 - 站点图标、分享卡片 meta、`.gitignore` / `.gitattributes` / `.editorconfig`。

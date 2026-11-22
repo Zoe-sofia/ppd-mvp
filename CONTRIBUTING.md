@@ -9,7 +9,7 @@ git clone https://github.com/Zoe-sofia/ppd-mvp.git
 cd ppd-mvp/app
 
 npm start          # http://127.0.0.1:8099
-npm test           # 31 项校验，必须全绿
+npm test           # 31 项算法校验 + 49 项导入导出校验，必须全绿
 npm run check      # 语法门禁
 ```
 
@@ -32,6 +32,7 @@ ui/    ← 只取数与渲染，不做计算
 | 改动 | 要求 |
 |---|---|
 | 新增业务规则 | 在 `core/` 实现 + 在 `tests/verify.mjs` 加一条能证伪它的用例；违规必须给出四要素（对象·原因·影响·去哪看） |
+| 改动导入校验 / CSV 解析 | 用例加到 `tests/io.test.mjs`，重点覆盖错误行号与字段定位、主数据覆盖与单据拒绝的分界 |
 | 修改排产算法 | 必须保持**可复现**（同输入两次结果一致）与**顺序无关**（约束判定不依赖任务数组顺序）；`npm test` 里已有对应断言 |
 | 修改指标口径 | 同步更新 `core/metrics.js` 里的 `formula` / `basis`，并在 PR 描述里写清分母分子变化；口径变更属于破坏性变更 |
 | 新增页面 | 在 `ui/pages/` 新建模块并导出 `{ render(view, ctx) }`，在 `app.js` 的 `PAGES` 注册；页面不得直接读写 `localStorage`，改数据走 `ctx.commit()` |
