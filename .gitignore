@@ -1,0 +1,37 @@
+# ── 操作系统 ──
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*~
+
+# ── 编辑器 / IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── 工具工作区（含内部方案笔记与本机绝对路径，不入库）──
+.workbuddy/
+
+# ── 运行时产物（应用「备份」按钮导出的本地文件）──
+生产计划数据备份_*.json
+*.local.json
+
+# ── Node（本项目零依赖，防止误提交）──
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── 环境变量（当前无需任何配置，预留以防将来接入模型）──
+.env
+.env.*
+!.env.example
+
+# ── 临时文件 ──
+tmp/
+*.tmp
+*.bak

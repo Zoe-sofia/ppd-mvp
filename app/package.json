@@ -1,0 +1,33 @@
+{
+  "name": "ppd-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "生产计划与交付管理 MVP —— 面向 PMC 的零依赖静态站点：工序级按日排产、齐套判定、执行勾稽与交付风险",
+  "keywords": [
+    "production-planning",
+    "pmc",
+    "scheduling",
+    "manufacturing",
+    "vanilla-js"
+  ],
+  "license": "MIT",
+  "author": "Zoe Lin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zoe-sofia/ppd-mvp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Zoe-sofia/ppd-mvp/issues"
+  },
+  "homepage": "https://zoe-sofia.github.io/ppd-mvp/",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "python -m http.server 8099",
+    "serve:node": "npx serve . -l 8099",
+    "test": "node tests/verify.mjs",
+    "check": "node tests/check-syntax.mjs"
+  }
+}
