@@ -27,6 +27,32 @@
 
 ## 2. 快速开始
 
+### 2.1 在线访问（推荐，零安装）
+
+直接打开 **[https://zoe-sofia.github.io/ppd-mvp/](https://zoe-sofia.github.io/ppd-mvp/)** 即可使用。
+
+这是 GitHub Pages 托管的**纯静态站点**：不需要克隆、不需要装 Node、不需要在本机起任何服务，
+也不依赖任何后台进程（本机的 `python -m http.server` 只是开发时可选的自测方式）。
+仓库 push 到 `main` 后由 `.github/workflows/pages.yml` 自动构建发布，站点文件即 `app/` 目录。
+
+能脱离后台服务运行，靠的是三条约定（都已在代码里落实，不是"摆上去试试"）：
+
+| 依赖项 | 现状 |
+|---|---|
+| 资源路径 | 全部相对路径（`./assets/...`），因此挂在 `/<repo>/` 子路径下也能正常加载 |
+| 路由 | hash 路由（`#/dashboard`），刷新与直链不需要服务端 rewrite；未知 hash 回退工作台 |
+| 接口 / 后端 | 无。没有 `fetch` / XHR / WebSocket / Service Worker，数据只在浏览器本地 |
+
+配套文件：`app/.nojekyll`（关闭 Jekyll）、`app/404.html`（未知路径回退页）、
+`app/index.html` 里的 `file://` 兜底提示（双击打开时明确告知"请通过网址访问"，而不是白屏）。
+CI 的部署步骤还会校验必需文件、并**拦截 `src="/..."` 这类根路径引用** —— 那是一上线就白屏的头号原因。
+
+> 想部署到自己的仓库或域名：把 `app/` 整个目录原样发布到目标路径即可，代码里没有写死的 origin。
+> 唯一的例外是 `index.html` 的 `og:image` / `canonical` 与 `404.html` 里的在线地址，只影响分享卡片，
+> 不影响功能，按需替换。
+
+### 2.2 本地运行
+
 ```bash
 git clone https://github.com/Zoe-sofia/ppd-mvp.git
 cd ppd-mvp/app
@@ -132,7 +158,7 @@ npx serve . -l 8099             # 或 npm run serve:node
 
 ```bash
 cd app
-npm test          # 31 算法 + 50 导入导出 + 42 整库 JSON + 52 Excel/CSV 批量导入 = 175 项，全部通过
+npm test          # 31 算法 + 50 导入导出 + 42 整库 JSON + 63 Excel/CSV 批量导入 = 186 项，全部通过
 npm run check     # 33 个 ES Module 的语法门禁
 ```
 
@@ -149,14 +175,18 @@ npm run check     # 33 个 ES Module 的语法门禁
 （回归：修复前导入后计划页可见 0 条）、缺版本时自动建版本、失效 `activeVersionId` 修正、
 与备份格式互导、导入后可直接排产且 12 项指标无 NaN。
 
-**Excel/CSV 批量导入侧**（`tests/import-files.test.mjs`，52 项）：真实 xlsx / xls / GBK-CSV 文件解析
+**Excel/CSV 批量导入侧**（`tests/import-files.test.mjs`，63 项）：真实 xlsx / xls / GBK-CSV 文件解析
 （标题行、日期序列号、多工作表、共享字符串跨 `CONTINUE` 的 601 行大表）、表头别名与场景自动识别、
 多文件按依赖顺序处理、错误隔离（坏文件不影响好文件）、**销售与生产分别导入互不覆盖**、
-重复导入幂等、手工录入保留、BOM/库存按自然键去重、清空后不重建演示数据且可重新导入。
+重复导入幂等、手工录入保留、BOM/库存按自然键去重、清空后不重建演示数据且可重新导入；
+另有存储变体兼容用例（命名空间前缀、单引号属性、无 `sharedStrings`、富文本 `runs`、缺 `r` 属性、
+绝对路径 target、write-only 产物、合并单元格、表头带单位括号、表头靠后、信息量不足不硬猜、空表）。
 
 CI 在每次 push / PR 上跑上述四项（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
 
 **未自动化的部分**：页面渲染与弹窗链路（开工 / 完工 / 改派 / 导入 / 版本对比）目前靠手工验收，欢迎补 E2E。
+已手工做过的浏览器回归：三套场景 10 个路由无渲染报错、真实文件选择器完成多文件导入与重复导入、
+清空确认链路；以及**子路径部署回归**（`/ppd-mvp/` 下 22 项检查全通过、无 4xx 资源、hash 直链可用）。
 导入链路另做过一次无头 Chromium 手工回归：真实文件选择器完成 3 文件导入并写库、重复导入条数不变、
 清空确认与空库页面渲染均正常。
 
@@ -222,8 +252,8 @@ A dependency-free, build-free production planning & delivery management MVP for 
 
 It keeps planning, materials, execution and delivery in one data model: **hard-constraint-first daily scheduling** at the operation level (capacity consumed in physical units, so the plan and the validator can never disagree), **two-level BOM kitting** with a worst-case rule, **quantity reconciliation gates** that block over-reporting, and a **12-metric dictionary** where every number carries its formula and drill-down.
 
-No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`.
+No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`. It is also published as a pure static site on GitHub Pages — relative asset paths, hash routing and zero network calls, so the online demo needs no server process of its own.
 
-Your own data can be imported from **Excel (`.xlsx` / `.xls`) or CSV** — several files at once, scenarios detected from sheet names/headers, merged rather than replacing: master data is updated by code (ids preserved), documents are skipped when duplicated, so sales and production orders never overwrite each other and manual entries survive. A full-dataset JSON import and a guarded "clear all data" action are available under 场景 → 数据管理. 175 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 50 on import/export: CSV edge cases, row-level validation, date tolerance; 42 on JSON dataset import: envelopes, field-level errors, version relinking; 52 on Excel/CSV batch import: real xlsx/xls/GBK fixtures, multi-batch idempotency, cross-scenario isolation, clear-all) run on every push via GitHub Actions.
+Your own data can be imported from **Excel (`.xlsx` / `.xls`) or CSV** — several files at once, scenarios detected from sheet names/headers, merged rather than replacing: master data is updated by code (ids preserved), documents are skipped when duplicated, so sales and production orders never overwrite each other and manual entries survive. A full-dataset JSON import and a guarded "clear all data" action are available under 场景 → 数据管理. 186 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 50 on import/export: CSV edge cases, row-level validation, date tolerance; 42 on JSON dataset import: envelopes, field-level errors, version relinking; 63 on Excel/CSV batch import: real xlsx/xls/GBK fixtures, xlsx storage variants, header/scenario detection, multi-batch idempotency, cross-scenario isolation, clear-all) run on every push via GitHub Actions.
 
 Licensed under MIT.

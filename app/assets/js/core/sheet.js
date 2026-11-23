@@ -175,28 +175,48 @@ async function unzip(buffer) {
   return files;
 }
 
+/**
+ * 属性解析：同时接受双引号与单引号。
+ * 少数导出工具（含部分 WPS / 第三方报表引擎）会把 XML 属性写成单引号，
+ * 只认双引号时整张表会被读成 0 行 —— 表现为"行数 0、场景待指定、没有识别到表头"。
+ */
 const tagAttrs = (tag) => {
   const out = {};
-  const re = /([\w:.-]+)\s*=\s*"([^"]*)"/g;
+  const re = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
   let m;
-  while ((m = re.exec(tag))) out[m[1]] = m[2];
+  while ((m = re.exec(tag))) out[m[1]] = m[2] === undefined ? m[3] : m[2];
   return out;
 };
 
+/**
+ * 命名空间前缀：OOXML 允许 `<x:row>` 这种带前缀的写法。
+ * 前缀无关匹配，避免"标准写法能读、带前缀就 0 行"。
+ */
+const NS = '(?:[A-Za-z_][A-Za-z0-9_.-]*:)?';
+const reTag = (name, flags = 'g') => new RegExp(`<${NS}${name}\\b`, flags);
+const rePair = (name, flags = 'g') => new RegExp(`<${NS}${name}\\b([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/${NS}${name}>)`, flags);
+const reText = (name) => new RegExp(`<${NS}${name}\\b[^>]*>([\\s\\S]*?)<\\/${NS}${name}>`);
+const reOpen = (name) => new RegExp(`<${NS}${name}\\b[^>]*\\/>`);
+
 /** <si> 里的可见文本：拼接所有 <t>，忽略注音 <rPh> */
 function siText(xml) {
-  const body = String(xml).replace(/<rPh\b[\s\S]*?<\/rPh>/g, '');
+  const body = String(xml).replace(new RegExp(`<${NS}rPh\\b[\\s\\S]*?<\\/${NS}rPh>`, 'g'), '');
   const parts = [];
-  const re = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+  const re = reText('t');
+  const g = new RegExp(re.source, 'g');
   let m;
-  while ((m = re.exec(body))) parts.push(m[1]);
-  if (!parts.length && /<t\b[^>]*\/>/.test(body)) return '';
+  while ((m = g.exec(body))) parts.push(m[1]);
+  if (!parts.length && reOpen('t').test(body)) return '';
   return unescapeXml(parts.join(''));
 }
 
-/** 首个工作表 + 全部工作表名（顺序按 workbook.xml 声明） */
+/**
+ * 全部工作表（顺序按 workbook.xml 声明）
+ * @returns {Promise<{sheets: Array<{name:string, grid:Array}>, notes: string[]}>}
+ */
 async function readXlsx(buffer) {
   const files = await unzip(buffer);
+  const notes = [];
   const get = async (name) => {
     const f = files.get(name);
     if (!f) return null;
@@ -210,19 +230,21 @@ async function readXlsx(buffer) {
   const rels = new Map();
   if (relBytes) {
     const relXml = decodeUtf8(relBytes);
-    const re = /<Relationship\b[^>]*\/?>/g;
     let m;
+    const re = reTag('Relationship');
     while ((m = re.exec(relXml))) {
-      const a = tagAttrs(m[0]);
+      const tag = relXml.slice(m.index, relXml.indexOf('>', m.index) + 1);
+      const a = tagAttrs(tag);
       if (a.Id && a.Target) rels.set(a.Id, a.Target);
     }
   }
 
   const listed = [];
-  const sheetRe = /<sheet\b[^>]*\/?>/g;
+  const sheetRe = reTag('sheet');
   let ms;
   while ((ms = sheetRe.exec(wbXml))) {
-    const a = tagAttrs(ms[0]);
+    const tag = wbXml.slice(ms.index, wbXml.indexOf('>', ms.index) + 1);
+    const a = tagAttrs(tag);
     if (!a.name) continue;
     const rid = a['r:id'] || '';
     let target = rels.get(rid) || '';
@@ -246,24 +268,52 @@ async function readXlsx(buffer) {
   const sstBytes = await get('xl/sharedStrings.xml');
   if (sstBytes) {
     const xml = decodeUtf8(sstBytes);
-    const re = /<si\b[^>]*>([\s\S]*?)<\/si>|<si\b[^>]*\/>/g;
+    const re = rePair('si');
     let m;
-    while ((m = re.exec(xml))) shared.push(m[1] ? siText(m[1]) : '');
+    while ((m = re.exec(xml))) shared.push(m[2] ? siText(m[2]) : '');
+    if (!shared.length && /<\w*:?si\b/.test(xml)) {
+      notes.push('共享字符串表解析到 0 条，文本单元格可能为空');
+    }
+  } else {
+    // 没有 sharedStrings 但单元格引用它 → 文本会全部为空，必须让调用方知道原因
+    let usesShared = false;
+    for (const s of listed) {
+      if (!s.path) continue;
+      const bytes = await get(s.path);
+      if (bytes && /\bt\s*=\s*["']s["']/.test(decodeUtf8(bytes))) {
+        usesShared = true;
+        break;
+      }
+    }
+    if (usesShared) notes.push('文件缺少 sharedStrings.xml，但单元格引用了共享字符串，文本无法还原');
   }
 
   const sheets = [];
   for (const s of listed) {
     const bytes = await get(s.path);
     if (!bytes) continue;
-    sheets.push({ name: s.name, grid: xlsxSheetGrid(decodeUtf8(bytes), shared) });
+    const xml = decodeUtf8(bytes);
+    const grid = xlsxSheetGrid(xml, shared);
+    if (!grid.length) {
+      const emptySheetData = rePair('sheetData').exec(xml);
+      notes.push(
+        `工作表「${s.name}」解析到 0 行` +
+          (emptySheetData && !(emptySheetData[2] || '').trim()
+            ? '（sheetData 为空，数据可能在图表/图片或未保存）'
+            : '（可能使用了不常见的 XML 写法）')
+      );
+    }
+    sheets.push({ name: s.name, grid });
   }
   if (!sheets.length) throw new Error('xlsx 中未找到任何工作表');
-  return sheets;
+  return { sheets, notes };
 }
 
 function xlsxSheetGrid(xml, shared) {
   const grid = [];
-  const rowRe = /<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g;
+  const rowRe = rePair('row');
+  const vRe = reText('v');
+  const isRe = reText('is');
   let rm;
   let autoRow = 0;
   while ((rm = rowRe.exec(xml))) {
@@ -273,7 +323,7 @@ function xlsxSheetGrid(xml, shared) {
     autoRow = rIdx;
     const cells = [];
     const body = rm[2] || '';
-    const cellRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    const cellRe = rePair('c');
     let cm;
     let autoCol = -1;
     while ((cm = cellRe.exec(body))) {
@@ -284,17 +334,26 @@ function xlsxSheetGrid(xml, shared) {
       const inner = cm[2] || '';
       let val = '';
       if (ca.t === 's') {
-        const v = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        const v = vRe.exec(inner);
         val = v ? shared[Number(v[1])] ?? '' : '';
+        // 引用越界时退回内联文本，避免整格丢失
+        if (!val) {
+          const is = isRe.exec(inner);
+          if (is) val = siText(is[1]);
+        }
       } else if (ca.t === 'inlineStr') {
-        const is = /<is>([\s\S]*?)<\/is>/.exec(inner);
+        const is = isRe.exec(inner);
         val = is ? siText(is[1]) : '';
-      } else if (ca.t === 'str') {
-        const v = /<v>([\s\S]*?)<\/v>/.exec(inner);
+      } else if (ca.t === 'str' || ca.t === 'd' || ca.t === 'e') {
+        const v = vRe.exec(inner);
         val = v ? unescapeXml(v[1]) : '';
       } else {
-        const v = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        const v = vRe.exec(inner);
         if (v) val = unescapeXml(v[1]);
+        else {
+          const is = isRe.exec(inner);
+          if (is) val = siText(is[1]);
+        }
       }
       cells[ci] = String(val).trim();
     }
@@ -677,7 +736,9 @@ export function detectFormat(fileName, bytes) {
 }
 
 /**
- * 读任意受支持的表格文件 → { format, sheets: [{name, grid}] }
+ * 读任意受支持的表格文件 → { format, sheets: [{name, grid}], notes: string[] }
+ * notes 是"解析告警"：读到了文件但内容可疑时给出可操作的原因，界面直接展示，
+ * 避免用户只看到"行数 0 / 待指定"却不知道是文件问题还是数据问题。
  * @param {{name:string, buffer?:ArrayBuffer|Uint8Array, text?:string}} file
  */
 export async function readTableFile(file) {
@@ -685,16 +746,22 @@ export async function readTableFile(file) {
   const hasBuffer = file && file.buffer !== undefined && file.buffer !== null;
   const format = hasBuffer ? detectFormat(name, file.buffer) : 'csv';
   if (format === 'xlsx') {
-    const sheets = await readXlsx(file.buffer);
-    return { format, sheets };
+    const { sheets, notes } = await readXlsx(file.buffer);
+    return { format, sheets, notes };
   }
   if (format === 'xls') {
     const sheets = parseBiffWorkbook(readCfbWorkbook(file.buffer));
-    return { format, sheets };
+    const notes = sheets.every((s) => !s.grid.length) ? ['工作表解析到 0 行（可能是加密、损坏或非 BIFF8 格式）'] : [];
+    return { format, sheets, notes };
   }
   const text = file.text !== undefined && file.text !== null ? String(file.text) : decodeBytes(file.buffer || new Uint8Array());
   const parsed = parseDelimitedText(text);
-  return { format: 'csv', sheets: [{ name: name.replace(/\.[^.]+$/, '') || 'CSV', grid: parsed.grid }] };
+  const notes = parsed.grid.length ? [] : ['文本内容解析到 0 行（文件可能为空或不是分隔文本）'];
+  return {
+    format: 'csv',
+    sheets: [{ name: name.replace(/\.[^.]+$/, '') || 'CSV', grid: parsed.grid }],
+    notes,
+  };
 }
 
 /** 把网格裁掉纯空行/空列（表头定位时用） */

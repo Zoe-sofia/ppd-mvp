@@ -90,10 +90,14 @@ section('3. 逐行校验（行号 / 字段 / 原因）');
 
 const db0 = emptyDb();
 
-const missHeader = validateImport('products', parseCsv('产品编号\nP-1'), db0);
+// 只命中 1 列不再当作表头（否则"名称"这种通用词会把任何台账认成产品表），
+// 这里用"命中 2 列但缺 1 个必填列"来覆盖缺列分支
+const missHeader = validateImport('products', parseCsv('产品编号,产品名称,备注\nP-1,泵,x'), db0);
 check(
-  '缺必填列：定位到第 1 行（表头）',
-  missHeader.errors.length === 2 && missHeader.errors.every((e) => e.line === 1),
+  '缺必填列：定位到第 1 行（表头）并指出缺哪列',
+  missHeader.errors.length === 1 &&
+    missHeader.errors.every((e) => e.line === 1) &&
+    missHeader.errors[0].message.includes('单位'),
   JSON.stringify(missHeader.errors)
 );
 

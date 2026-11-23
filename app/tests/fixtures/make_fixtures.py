@@ -107,6 +107,75 @@ def products_long_xls():
     wb.save(os.path.join(HERE, "products-long.xls"))
 
 
+def _raw_xlsx(path, sheet_xml, shared_xml=None, sheet_name="Sheet1"):
+    """手工拼一个最小 xlsx（zip），用于构造 openpyxl 写不出来的"非常规写法"。
+
+    真实世界里确实存在这类文件：带命名空间前缀（<x:row>）、属性用单引号。
+    它们本身是合法 XML，但如果解析器写死了双引号 / 无前缀，整张表会被读成 0 行，
+    用户看到的就是"行数 0、场景待指定、没有识别到表头"。
+    """
+    import zipfile
+
+    wb = (
+        '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
+        '<sheet name="%s" sheetId="1" r:id="rId1"/></sheets></workbook>' % sheet_name
+    )
+    rels = (
+        '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("xl/workbook.xml", wb)
+        z.writestr("xl/_rels/workbook.xml.rels", rels)
+        if shared_xml:
+            z.writestr("xl/sharedStrings.xml", shared_xml)
+        z.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+
+
+def sales_orders_prefixed_xlsx():
+    """命名空间前缀 + 单引号属性 + 带单位的表头。
+
+    三个点同时覆盖：解析层能否读到内容、表头归一化能否去掉"（件）"这类说明。
+    """
+    header = ["销售订单行号", "客户名称（全称）", "产品编号(必填)", "数量（件）", "客户要求完工日"]
+    rows = [
+        ["SO-P1-L1", "前缀客户甲", "P-T1", "30", "2026-12-20"],
+        ["SO-P1-L2", "前缀客户甲", "P-T2", "10", "2026-12-22"],
+    ]
+    body = []
+    for i, row in enumerate([header] + rows, start=1):
+        cells = "".join(
+            "<x:c r='%s%d' t='inlineStr'><x:is><x:t>%s</x:t></x:is></x:c>" % ("ABCDE"[j], i, v)
+            for j, v in enumerate(row)
+        )
+        body.append("<x:row r='%d'>%s</x:row>" % (i, cells))
+    sheet = (
+        '<?xml version="1.0"?><x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<x:sheetData>%s</x:sheetData></x:worksheet>" % "".join(body)
+    )
+    _raw_xlsx(os.path.join(HERE, "sales-orders-prefixed.xlsx"), sheet, sheet_name="Sheet1")
+
+
+def unknown_headers_xlsx():
+    """表头全是"通用词"，任何场景都不该硬猜：验证识别失败时给出的提示是否可操作。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["编号", "名称", "备注"])
+    ws.append(["X-1", "某东西", "说明"])
+    wb.save(os.path.join(HERE, "unknown-headers.xlsx"))
+
+
+def empty_sheet_xlsx():
+    """空工作表：验证"解析到 0 行"和"没有表头"能被区分开。"""
+    sheet = (
+        '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData/></worksheet>"
+    )
+    _raw_xlsx(os.path.join(HERE, "empty-sheet.xlsx"), sheet, sheet_name="Sheet1")
+
+
 if __name__ == "__main__":
     products_xlsx()
     products_en_xlsx()
@@ -115,4 +184,7 @@ if __name__ == "__main__":
     production_orders_solo_xlsx()
     inventory_gbk_csv()
     products_long_xls()
+    sales_orders_prefixed_xlsx()
+    unknown_headers_xlsx()
+    empty_sheet_xlsx()
     print("fixtures written to", HERE)

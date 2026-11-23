@@ -335,6 +335,87 @@ check(
   })()
 );
 
+/* ═══════════ 11. 解析兼容性与识别诊断 ═══════════ */
+section('11. 解析兼容性与识别诊断');
+
+// 真实文件里存在"命名空间前缀 + 单引号属性"的 xlsx。解析器只认双引号/无前缀时，
+// 整张表会被读成 0 行，用户看到的就是"行数 0 / 待指定 / 没有识别到表头"。
+const prefixedRead = await readTableFile(await fixture('sales-orders-prefixed.xlsx'));
+const prefGrid = trimGrid(prefixedRead.sheets[0].grid);
+check(
+  'xlsx：命名空间前缀 + 单引号属性也能读出内容',
+  prefGrid.length === 3 && prefGrid[0][0] === '销售订单行号',
+  JSON.stringify(prefGrid[0])
+);
+const prefDetect = detectSpec('销售订单行.xlsx', prefixedRead.sheets[0]);
+check(
+  '表头带单位/必填说明（数量（件）、产品编号(必填)）仍能识别',
+  !!prefDetect && prefDetect.key === 'salesOrderLines' && prefDetect.matched >= 4,
+  JSON.stringify(prefDetect && { key: prefDetect.key, matched: prefDetect.matched })
+);
+check('识别结果非歧义时可直接采用', !!prefDetect && prefDetect.ambiguous === false);
+
+const prefNorm = normalizeSheet('salesOrderLines', prefixedRead.sheets[0]);
+check('表头行定位正确（第 1 行）且无缺失必填列', prefNorm.found && prefNorm.headerRow === 1 && prefNorm.missing.length === 0);
+
+// 端到端跑一遍：这类"非常规写法"的文件必须能真正导入，而不是只解析出来给人看
+const prefImport = await importSheetFiles([productsFile, await fixture('sales-orders-prefixed.xlsx')], emptyDb());
+check(
+  '前缀写法文件可端到端导入（3 个产品 + 2 条销售行）',
+  prefImport.ok && prefImport.totals.created === 5 && prefImport.totals.failed === 0,
+  JSON.stringify(prefImport.totals)
+);
+
+// 通用词表头（编号 / 名称 / 备注）不该被硬猜成某个场景
+const unknownRead = await readTableFile(await fixture('unknown-headers.xlsx'));
+check('通用词表头：不自动指定场景', detectSpec('台账.xlsx', unknownRead.sheets[0]) === null);
+const unknownValidate = validateImport('products', { grid: unknownRead.sheets[0].grid }, emptyDb());
+check(
+  '识别失败时给出"读到了什么"而不只是报错',
+  unknownValidate.errors.length > 0 &&
+    unknownValidate.errors[0].message.includes('前 20 行没有找到表头') &&
+    unknownValidate.errors[0].message.includes('编号'),
+  unknownValidate.errors[0] && unknownValidate.errors[0].message
+);
+
+// 空工作表必须与"表头不认识"区分开，否则用户会一直去改表头
+const emptyRead = await readTableFile(await fixture('empty-sheet.xlsx'));
+check(
+  '空工作表：解析告警说明是 0 行问题',
+  (emptyRead.notes || []).some((n) => n.includes('0 行')),
+  JSON.stringify(emptyRead.notes)
+);
+const emptyValidate = validateImport('products', { grid: emptyRead.sheets[0].grid }, emptyDb());
+check(
+  '空工作表：错误文案指向"文件没有数据"',
+  emptyValidate.errors.some((e) => e.message.includes('解析到 0 行数据')),
+  JSON.stringify(emptyValidate.errors)
+);
+
+// 英文通用列名会同时命中产品与物料，但必填覆盖率不同，不该被判成歧义
+const enRead = await readTableFile(await fixture('products-en.xlsx'));
+const enDetect = detectSpec('products-en.xlsx', enRead.sheets[0]);
+check(
+  '英文表头：判为产品且不误报歧义',
+  !!enDetect && enDetect.key === 'products' && enDetect.ambiguous === false,
+  JSON.stringify(enDetect && { key: enDetect.key, ambiguous: enDetect.ambiguous })
+);
+
+// 表头不在第一行也要能找到（这里直接构网格，覆盖 20 行搜索窗口）
+const shifted = {
+  grid: [
+    ['销售订单明细（2026 版）'],
+    [],
+    [],
+    [],
+    [],
+    ['销售订单行号', '客户名称', '产品编号', '数量', '客户要求完工日'],
+    ['SO-S1-L1', '客户甲', 'P-T1', '5', '2026-12-01'],
+  ],
+};
+const shiftedNorm = normalizeSheet('salesOrderLines', shifted);
+check('表头在第 6 行也能定位', shiftedNorm.found && shiftedNorm.headerRow === 6 && shiftedNorm.rows.length === 1);
+
 /* ═══════════ 结果 ═══════════ */
 console.log(results.join('\n'));
 console.log(`\n${'='.repeat(60)}`);

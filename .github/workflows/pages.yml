@@ -28,10 +28,33 @@ jobs:
         with:
           enablement: true
 
-      - name: 打包发布目录 app/
+      # 发布前先卡住两类"一上线就白屏"的问题：
+      # 1) 根路径引用（/assets/...）在 /<repo>/ 子路径下必然 404；
+      # 2) 运行所需文件缺失。
+      - name: 校验静态资源路径与必需文件
+        run: |
+          set -e
+          for f in app/index.html app/404.html app/.nojekyll app/assets/js/app.js app/assets/css/app.css app/assets/favicon.svg; do
+            test -f "$f" || { echo "缺少运行所需文件：$f"; exit 1; }
+          done
+          if grep -nE '(src|href)="/[^/]' app/index.html; then
+            echo "index.html 存在根路径引用，部署到 /<repo>/ 子路径会 404，请改为相对路径"
+            exit 1
+          fi
+
+      # 只发布运行所需文件：不带 tests / package.json / 设计文档，
+      # 避免把 150KB 测试夹具和内部说明一起暴露在公开站点上。
+      - name: 组装发布目录
+        run: |
+          set -e
+          mkdir -p dist
+          cp -R app/index.html app/404.html app/.nojekyll app/assets dist/
+          test -f dist/index.html
+
+      - name: 打包发布目录 dist/
         uses: actions/upload-pages-artifact@v3
         with:
-          path: app
+          path: dist
 
   deploy:
     name: 部署

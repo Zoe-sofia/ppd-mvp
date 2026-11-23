@@ -15,6 +15,8 @@ import {
   SPEC_ORDER,
   importSheetFiles,
   detectSpec,
+  normalizeSheet,
+  sheetSummary,
   allTemplates,
 } from '../io.js';
 import { readTableFile, trimGrid } from '../core/sheet.js';
@@ -104,6 +106,27 @@ export function openBatchImport(ctx, opts = {}) {
       const input = root.querySelector('#bi-files');
       const backupEl = root.querySelector('#bi-backup');
 
+      const peeked = new Set();
+
+      const statusOf = (e) => {
+        if (e.error) return { tone: 'danger', text: '读取失败' };
+        if (!e.rows) return { tone: 'danger', text: '解析到 0 行' };
+        if (e.detected && !e.detected.ambiguous) return { tone: 'ok', text: '已识别' };
+        if (e.detected && e.detected.ambiguous) return { tone: 'warn', text: '建议确认' };
+        return { tone: 'warn', text: '待指定' };
+      };
+
+      /** 解析结果预览：用户能直接看到"我到底读到了什么"，不用靠猜 */
+      const peekHtml = (e) => {
+        const head = `<div class="small muted" style="margin:4px 0 6px">下面是解析后读到的前 3 行（已去掉纯空行）。若与 Excel 里看到的不一致，说明该文件的存储方式特殊，请另存为 CSV 后重试。</div>`;
+        const table = (e.sample || []).length
+          ? `<div class="table-wrap"><table class="tb" style="font-size:12px"><tbody>${e.sample
+              .map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`)
+              .join('')}</tbody></table></div>`
+          : '<div class="small muted">没有读到任何单元格内容</div>';
+        return `<div style="padding:2px 0 8px">${head}${table}</div>`;
+      };
+
       const renderList = () => {
         if (!entries.length) {
           listEl.innerHTML = '<div class="empty">还没有选择文件</div>';
@@ -112,16 +135,30 @@ export function openBatchImport(ctx, opts = {}) {
         }
         const rows = entries
           .map((e, i) => {
-            const status = e.error
-              ? `<span class="badge danger">读取失败</span>`
-              : `<span class="badge ${e.detected ? 'ok' : 'warn'}">${e.detected ? '已识别' : '待指定'}</span>`;
+            const st = statusOf(e);
+            const info = e.error
+              ? ''
+              : `识别到 ${e.recognized.length} 列${e.headerRow ? ` · 表头第 ${e.headerRow} 行` : ''}`;
+            const cand =
+              e.detected && e.detected.ambiguous
+                ? `<div class="small muted">候选：${e.detected.candidates.map((c) => esc(c.label)).join(' / ')}</div>`
+                : '';
+            const notes = !e.error && (e.notes || []).length
+              ? `<div class="small" style="color:var(--danger)">${e.notes.map((n) => esc(n)).join('<br>')}</div>`
+              : '';
+            const peek = peeked.has(i) ? peekHtml(e) : '';
             return `<tr>
-              <td>${esc(e.name)}</td>
+              <td>${esc(e.name)}<div class="small muted">${info}</div></td>
               <td>${e.error ? '—' : `<span class="mono">${esc(e.format.toUpperCase())}</span> · ${esc(e.sheetName || '')}`}</td>
               <td><select data-spec="${i}" style="width:170px">${specOptions(e.specKey)}</select></td>
-              <td class="num">${e.error ? '—' : e.rowCount}</td>
-              <td>${status}${e.error ? `<div class="small" style="color:var(--danger)">${esc(e.error)}</div>` : ''}</td>
-            </tr>`;
+              <td class="num">${e.error ? '—' : e.rows}</td>
+              <td><span class="badge ${st.tone}">${st.text}</span>
+              ${e.error ? `<div class="small" style="color:var(--danger)">${esc(e.error)}</div>` : ''}
+              ${cand}${notes}
+              ${e.error ? '' : `<div><button class="btn sm ghost" data-peek="${i}" style="margin-top:4px">${peeked.has(i) ? '收起' : '前 3 行'}</button></div>`}
+              </td>
+            </tr>
+            <tr data-peek-row="${i}" ${peeked.has(i) ? '' : 'hidden'}><td colspan="5" style="border-top:0">${peek}</td></tr>`;
           })
           .join('');
         listEl.innerHTML = `<div class="table-wrap"><table class="tb"><thead><tr>
@@ -132,28 +169,59 @@ export function openBatchImport(ctx, opts = {}) {
             entries[Number(sel.dataset.spec)].specKey = sel.value;
           });
         });
+        listEl.querySelectorAll('[data-peek]').forEach((btn) =>
+          btn.addEventListener('click', () => {
+            const i = Number(btn.dataset.peek);
+            if (peeked.has(i)) peeked.delete(i);
+            else peeked.add(i);
+            renderList();
+          })
+        );
         runBtn.disabled = busy || !entries.some((e) => !e.error);
       };
 
       input.addEventListener('change', async () => {
         entries.length = 0;
+        peeked.clear();
         outEl.innerHTML = '';
         listEl.innerHTML = '<div class="empty">正在读取文件…</div>';
         for (const file of [...(input.files || [])]) {
-          const entry = { name: file.name, file, buffer: null, format: '', sheetName: '', rowCount: 0, specKey: '', detected: null, error: '' };
+          const entry = {
+            name: file.name,
+            file,
+            buffer: null,
+            format: '',
+            sheetName: '',
+            rows: 0,
+            sample: [],
+            notes: [],
+            recognized: [],
+            headerRow: 0,
+            specKey: '',
+            detected: null,
+            error: '',
+          };
           try {
             entry.buffer = await readBuffer(file);
             const read = await readTableFile({ name: entry.name, buffer: entry.buffer });
+            entry.notes = read.notes || [];
             const sheets = read.sheets || [];
-            const withRows = sheets.filter(
-              (s) => trimGrid(s.grid).length > 1
-            );
+            const withRows = sheets.filter((s) => trimGrid(s.grid).length > 1);
             const sheet = withRows[0] || sheets[0];
+            if (!sheet) throw new Error('文件里没有可读的工作表');
             entry.format = read.format;
-            entry.sheetName = sheet ? sheet.name : '';
-            entry.rowCount = sheet ? Math.max(0, trimGrid(sheet.grid).length - 1) : 0;
-            entry.detected = sheet ? detectSpec(entry.name, sheet) : null;
-            entry.specKey = entry.detected ? entry.detected.key : '';
+            entry.sheetName = sheet.name;
+            const sum = sheetSummary(sheet);
+            entry.rows = Math.max(0, sum.rows - 1);
+            entry.sample = sum.sample;
+            entry.detected = detectSpec(entry.name, sheet);
+            if (entry.detected) {
+              const norm = normalizeSheet(entry.detected.key, sheet);
+              entry.headerRow = norm.found ? norm.headerRow : 0;
+              entry.recognized = norm.found ? norm.headers : [];
+            }
+            // 歧义时不预选：按错误规格校验会报一堆看不懂的字段错误
+            entry.specKey = entry.detected && !entry.detected.ambiguous ? entry.detected.key : '';
           } catch (e) {
             entry.error = e.message;
           }
@@ -182,11 +250,28 @@ export function openBatchImport(ctx, opts = {}) {
           outEl.innerHTML = '<div class="notice warn">没有可导入的文件</div>';
           return;
         }
+        // "自动识别"选项留空时，用非歧义的识别结果兜底
+        usable.forEach((e) => {
+          if (!e.specKey && e.detected && !e.detected.ambiguous) e.specKey = e.detected.key;
+        });
+        const zero = usable.filter((e) => !e.rows);
+        if (zero.length) {
+          outEl.innerHTML = `<div class="notice danger"><b>有 ${zero.length} 份文件解析到 0 行</b>，没有数据可导入：${zero
+            .map((e) => esc(e.name))
+            .join('、')}。请点「前 3 行」确认读到的内容；若和 Excel 里不一致，请另存为 CSV 后重试。</div>`;
+          return;
+        }
         const unassigned = usable.filter((e) => !e.specKey);
         if (unassigned.length) {
-          outEl.innerHTML = `<div class="notice warn">有 ${unassigned.length} 份文件没识别出数据场景，请在上表手动选择：${unassigned
-            .map((e) => esc(e.name))
-            .join('、')}</div>`;
+          const detail = unassigned
+            .map((e) => {
+              const cand = e.detected && e.detected.candidates.length
+                ? `（候选：${e.detected.candidates.map((c) => esc(c.label)).join(' / ')}）`
+                : '';
+              return `${esc(e.name)}${cand}`;
+            })
+            .join('、');
+          outEl.innerHTML = `<div class="notice warn">有 ${unassigned.length} 份文件没确定数据场景，请在上表手动选择：${detail}</div>`;
           return;
         }
         busy = true;

@@ -347,6 +347,87 @@ export const IMPORT_SPECS = {
   },
 };
 
+/**
+ * 列别名补充表
+ *
+ * 为什么单独列一张表：真实文件里同一列有太多叫法（ERP 导出、手工台账、英文模板各一套），
+ * 逐个塞进字段定义会把规格读成一团。这里集中维护，且只做"并集"，不改原有别名。
+ * 匹配前会先做归一化（去括号、去单位、去空格、全角转半角），所以这里不必写"数量（件）"。
+ */
+const EXTRA_ALIASES = {
+  'products.code': ['产品号', '品号', '产品id', 'itemno', 'sku'],
+  'products.name': ['产品', '产品名', '品名规格', 'productname', 'description'],
+  'products.unit': ['基本单位', '库存单位', 'uom', 'baseunit'],
+
+  'materials.code': ['物料号', '物料id', '料品编码', 'materialno', 'itemno'],
+  'materials.name': ['物料名', '料品名称', 'materialname'],
+  'materials.unit': ['基本单位', 'uom'],
+  'materials.type': ['物料属性', 'materialtype', 'category'],
+
+  'workCenters.code': ['中心编码', '工作中心', 'wc', 'workcenter'],
+  'workCenters.name': ['中心名称', '工作中心名', 'workcentername'],
+  'workCenters.capacityMode': ['产能模式', '模式', 'capacitymode'],
+  'workCenters.dailyCapacity': ['产能', '日产量', 'capacity'],
+  'workCenters.dailyHours': ['工时', '可用小时', 'hours'],
+
+  'bomItems.productCode': ['产品', '成品编号', 'productcode'],
+  'bomItems.level': ['层级', 'bom层级', '阶次', '层', 'level'],
+  'bomItems.parentCode': ['父件', '父级编码', 'parent', 'parentcode'],
+  'bomItems.childCode': ['子件', '子项编码', '组件编码', 'child', 'childcode'],
+  'bomItems.qtyPer': ['用量', '单耗', '单位用量', 'qtyper', 'qty'],
+
+  'capabilities.wcCode': ['工作中心', '中心编码', 'wccode'],
+  'capabilities.opName': ['工序', '工序名', 'operation', 'opname'],
+
+  'inventory.materialCode': ['物料', '物料号', '料号', 'materialcode'],
+  'inventory.qty': ['库存', '库存量', '现有量', '结存', 'onhand', 'stock', 'quantity'],
+  'inventory.warehouse': ['仓库', '库位', '仓别', 'location', 'warehouse'],
+
+  'inbounds.materialCode': ['物料', '物料号', '料号', 'materialcode'],
+  'inbounds.qty': ['到货量', '数量', 'qty', 'quantity'],
+  'inbounds.expectedDate': ['预计到货', '到货日期', '预到日期', 'eta', 'expecteddate'],
+  'inbounds.confirmed': ['确认状态', '是否已确认', 'confirmed'],
+  'inbounds.supplier': ['供应商', '供货商', 'supplier', 'vendor'],
+
+  'salesOrderLines.lineCode': ['行号', '订单行', '销售订单行', 'line', 'soline', 'lineno'],
+  'salesOrderLines.soCode': ['订单号', '订单编号', '销售单号', 'sono', 'salesorder', 'orderno'],
+  'salesOrderLines.customer': ['客户', '客户全称', '顾客', 'customer', 'client'],
+  'salesOrderLines.productCode': ['产品', '产品号', '料号', 'productcode', 'itemcode'],
+  'salesOrderLines.qty': ['订单量', '订货数量', 'qty', 'quantity'],
+  'salesOrderLines.dueDate': ['交期', '客户交期', '要求交期', '完工日', 'duedate', 'deliverydate'],
+  'salesOrderLines.priority': ['优先级', 'priority'],
+
+  'productionOrders.code': ['工单', '工单编号', '生产单号', '制令单号', 'mo', 'workorder', 'orderno'],
+  'productionOrders.lineCode': ['销售行号', '源单行号', 'soline', 'linecode'],
+  'productionOrders.productCode': ['产品', '产品号', '料号', 'productcode', 'itemcode'],
+  'productionOrders.qty': ['生产量', '计划量', 'qty', 'quantity'],
+  'productionOrders.dueDate': ['交期', '完工日', '计划完工', 'duedate'],
+  'productionOrders.manualPriority': ['优先级', 'priority'],
+};
+
+/** 文件名 / 工作表名里的场景关键词（名称命中才加分，避免只靠内容猜） */
+const EXTRA_HINTS = {
+  products: ['产品主数据', '产品清单', '成品'],
+  materials: ['物料主数据', '物料清单', '料件'],
+  workCenters: ['工作中心', '产能'],
+  bomItems: ['bom', '用料', '配方'],
+  capabilities: ['工序', '适配'],
+  inventory: ['现存量', '库存表', '结存'],
+  inbounds: ['到货记录', '到货明细', '收料', '入库'],
+  salesOrderLines: ['销售订单行', '订单明细', '销售明细', '订单行'],
+  productionOrders: ['生产订单', '生产工单', '工单明细'],
+};
+
+for (const [path, list] of Object.entries(EXTRA_ALIASES)) {
+  const [specKey, fieldKey] = path.split('.');
+  const spec = IMPORT_SPECS[specKey];
+  const field = spec && spec.fields.find((x) => x.key === fieldKey);
+  if (field) field.aliases = [...new Set([...(field.aliases || []), ...list])];
+}
+for (const [specKey, list] of Object.entries(EXTRA_HINTS)) {
+  if (IMPORT_SPECS[specKey]) IMPORT_SPECS[specKey].hint = [...new Set([...(IMPORT_SPECS[specKey].hint || []), ...list])];
+}
+
 /** 依赖顺序：主数据必须先落地，否则单据的关联关系无处可挂 */
 export const SPEC_ORDER = Object.keys(IMPORT_SPECS).sort(
   (a, b) => IMPORT_SPECS[a].rank - IMPORT_SPECS[b].rank || IMPORT_SPECS[a].label.localeCompare(IMPORT_SPECS[b].label)
@@ -392,10 +473,19 @@ export async function parseXlsx(buffer) {
 
 /* ═══════════════ 表头识别 ═══════════════ */
 
+/**
+ * 表头归一化：真实表头常带单位、必填标记、全角括号和空格
+ * （"数量（件）"、"产品编号(必填)"、" SO Line No. "），不归一化就会"看起来一样却匹配不上"。
+ */
 const normHeader = (s) =>
   String(s ?? '')
+    .normalize('NFKC')
+    // 去掉任意位置的括号说明：单位、必填、备注都不参与匹配
+    .replace(/[（(\[【][^）)\]】]*[）)\]】]/g, '')
     .replace(/[\s\u3000]/g, '')
-    .replace(/[（(][^）)]*[）)]$/, '')
+    // 标点与连接符不参与匹配（SO-Line / SO Line / SO_Line 等价）
+    .replace(/[：:、,，.。;；/\\_\-—–*#№"'“”‘’]/g, '')
+    .replace(/(必填|必录|选填|可选|可空|required|optional)$/i, '')
     .toLowerCase();
 
 function headerLookup(spec) {
@@ -410,17 +500,22 @@ function headerLookup(spec) {
 /**
  * 在前若干行里找表头：真实报表常有"XX 数据（2026 版）"这类标题行，
  * 直接拿第一行当表头会把整表读成 0 行。
+ *
+ * 打分：命中列数 ×2 + 命中必填列 ×4 + 文本密度（防止把数据行当表头）。
+ * 质量门槛：至少命中 2 列；只命中 1 列时视为"没找到表头"，而不是"随便捡一行"。
  */
 export function locateHeader(spec, grid) {
   const lookup = headerLookup(spec);
   let best = null;
-  const limit = Math.min(grid.length, 10);
+  const limit = Math.min(grid.length, 20);
   for (let r = 0; r < limit; r += 1) {
     const row = grid[r] || [];
     const used = new Set();
     const cols = new Map();
     const aliasHits = [];
+    let textCells = 0;
     row.forEach((h, c) => {
+      if (String(h ?? '').trim() !== '') textCells += 1;
       const field = lookup.get(normHeader(h));
       if (!field || used.has(field.key)) return;
       used.add(field.key);
@@ -429,22 +524,52 @@ export function locateHeader(spec, grid) {
     });
     const matched = used.size;
     const reqMatched = spec.fields.filter((x) => x.required && used.has(x.key)).length;
-    const score = matched * 2 + reqMatched * 3;
-    if (!best || score > best.score) best = { row: r, score, matched, reqMatched, cols, aliasHits };
+    const score = matched * 2 + reqMatched * 4 + Math.min(textCells, 10) * 0.2;
+    if (!best || score > best.score) best = { row: r, score, matched, reqMatched, cols, aliasHits, textCells };
   }
-  return best && best.matched > 0 ? best : null;
+  if (!best) return null;
+  // 至少两列命中才算表头：只命中 1 列（哪怕它恰好是必填列）时，多半是把数据行里的
+  // 某个词当成了列名，继续往下校验只会报"表头缺少必填列"，掩盖真正原因。
+  return best.matched >= 2 ? best : null;
+}
+
+/**
+ * 只裁列、保留行位置。
+ *
+ * 表头定位与错误行号都依赖"第几行"，如果用 trimGrid 去掉空行，
+ * 回给用户的"表头在第 3 行"就会变成第 2 行，报错行号也会和 Excel 左侧对不上。
+ */
+function gridKeepRows(grid) {
+  const rows = (grid || []).filter((r) => Array.isArray(r));
+  if (!rows.length) return [];
+  let min = Infinity;
+  let max = -1;
+  for (const r of rows) {
+    for (let i = 0; i < r.length; i += 1) {
+      if (String(r[i] ?? '').trim() !== '') {
+        if (i < min) min = i;
+        if (i > max) max = i;
+      }
+    }
+  }
+  if (max < 0) return rows.map(() => []);
+  return rows.map((r) => {
+    const out = [];
+    for (let i = min; i <= max; i += 1) out.push(String(r[i] ?? '').trim());
+    return out;
+  });
 }
 
 /** 网格 + 规格 → 规范化的行（键为字段 label，附原始行号 __row） */
 export function normalizeSheet(specKey, sheet) {
   const spec = IMPORT_SPECS[specKey];
-  const grid = trimGrid(sheet.grid || sheet);
-  if (!grid.length) {
-    return { found: false, headers: [], rows: [], headerRow: 0, missing: [], extra: [], aliasHits: [] };
+  const grid = gridKeepRows(sheet.grid || sheet);
+  if (!grid.some((r) => r.some((c) => c !== ''))) {
+    return { found: false, empty: true, headers: [], rows: [], headerRow: 0, missing: [], extra: [], aliasHits: [] };
   }
   const head = locateHeader(spec, grid);
   if (!head) {
-    return { found: false, headers: (grid[0] || []).map(String), rows: [], headerRow: 0, missing: [], extra: [], aliasHits: [] };
+    return { found: false, empty: false, headers: (grid[0] || []).map(String), rows: [], headerRow: 0, missing: [], extra: [], aliasHits: [] };
   }
   const mapped = new Set(head.cols.keys());
   const missing = spec.fields.filter((x) => x.required && !mapped.has(x.key)).map((x) => x.label);
@@ -552,11 +677,27 @@ export function validateImport(specKey, parsed, db, options = {}) {
   const norm = parsed && parsed.grid ? normalizeSheet(specKey, parsed) : normalizeSheet(specKey, legacyToGrid(parsed || {}));
 
   if (!norm.found) {
-    errors.push({
-      line: 1,
-      field: '表头',
-      message: `没有识别到表头：需要包含至少一个已知列（如「${spec.fields[0].label}」）。若首行是标题，请把表头放在前 10 行内`,
-    });
+    const grid = parsed && parsed.grid ? parsed.grid : legacyToGrid(parsed || {}).grid;
+    const seen = (norm.headers || []).map((h) => String(h ?? '').trim()).filter(Boolean).slice(0, 8);
+    if (norm.empty) {
+      errors.push({
+        line: 1,
+        field: '文件',
+        message: '解析到 0 行数据：文件可能为空、数据在图片/图表里，或不是标准表格。请在 Excel 中另存为 .xlsx 或 CSV 后重试',
+      });
+    } else {
+      // 给出"更像哪类数据"，用户改选场景能少走一轮
+      const guess = detectSpec('', { grid });
+      const tip = guess ? `；这些列看起来更像「${IMPORT_SPECS[guess.key].label}」，可改选该场景` : '';
+      const sample = seen.length ? `（当前读到：${seen.join(' | ')}）` : '';
+      errors.push({
+        line: 1,
+        field: '表头',
+        message: `前 20 行没有找到表头${sample}。至少需要一列已知列，例如「${spec.fields[0].label}」或「${
+          (spec.fields[1] || {}).label || spec.label
+        }」${tip}`,
+      });
+    }
     return { errors, warnings, entities, headers: norm.headers, meta: norm };
   }
   if (norm.missing.length) {
@@ -774,27 +915,69 @@ export function applyImport(specKey, entities, db, options = {}) {
 
 /**
  * 按工作表名 / 文件名 / 表头内容综合判断这份文件属于哪个导入场景。
- * 打分：表头匹配为主（一个必填列 3 分、可选列 2 分），名称命中给额外加分。
+ *
+ * 打分：命中列 ×2、命中必填列 ×4、必填覆盖率 ×6，文件名/表名命中场景关键词 +10。
+ * 两个场景分差 ≤3 视为"歧义"，此时不自动选中，由界面给出候选让用户确认 —— 猜错场景
+ * 比让用户点一下更糟：会按错误规格校验，报一堆莫名其妙的字段错误。
  */
 export function detectSpec(fileName, sheet) {
   const text = `${String(fileName || '')} ${String((sheet && sheet.name) || '')}`.toLowerCase();
-  let best = null;
+  const grid = trimGrid((sheet && sheet.grid) || []);
+  if (!grid.length) return null;
+  const scored = [];
   for (const key of SPEC_ORDER) {
     const spec = IMPORT_SPECS[key];
-    const grid = trimGrid((sheet && sheet.grid) || []);
-    if (!grid.length) continue;
     const head = locateHeader(spec, grid);
     if (!head) continue;
-    let score = head.matched * 2 + head.reqMatched * 3;
-    for (const h of spec.hint || []) {
-      if (text.includes(String(h).toLowerCase())) {
-        score += 8;
-        break;
-      }
-    }
-    if (!best || score > best.score) best = { key, score, headerRow: head.row, matched: head.matched };
+    const reqTotal = spec.fields.filter((x) => x.required).length || 1;
+    const reqRatio = head.reqMatched / reqTotal;
+    let score = head.matched * 2 + head.reqMatched * 4 + reqRatio * 6;
+    const hintHit = (spec.hint || []).find((h) => text.includes(String(h).toLowerCase()));
+    if (hintHit) score += 10;
+    scored.push({
+      key,
+      score,
+      headerRow: head.row + 1,
+      matched: head.matched,
+      reqMatched: head.reqMatched,
+      reqRatio,
+      hint: hintHit || '',
+    });
   }
-  return best;
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored[0];
+  // 信息量门槛：只碰到 1 列（哪怕是必填列）不足以定场景。
+  // 例：表头只有"编号 | 名称 | 备注"时，"名称"会命中产品/物料/工作中心三家的必填列，
+  // 这时硬猜某个场景，用户会在校验阶段看到一堆莫名其妙的"表头缺少必填列"。
+  const strong = !!top.hint || top.matched >= 3 || (top.matched >= 2 && top.reqMatched >= 1);
+  if (!strong) return null;
+  const second = scored[1];
+  // 歧义判定不能只看总分：英文通用列名（Item Code / Name / Unit）会同时命中"产品"和"物料"，
+  // 但两者必填覆盖率通常差得开（物料还多一个"类型"），这种情况应直接采用覆盖率高的那个。
+  const closeScore = !!second && top.score - second.score <= 3;
+  const sameShape = !!second && top.matched === second.matched && Math.abs(top.reqRatio - second.reqRatio) < 0.15;
+  return {
+    ...top,
+    ambiguous: closeScore && sameShape,
+    candidates: scored.slice(0, 3).map((s) => ({
+      key: s.key,
+      label: IMPORT_SPECS[s.key].label,
+      score: Math.round(s.score),
+      hint: s.hint,
+    })),
+  };
+}
+
+/** 给界面用的"我到底读到了什么"摘要：行数、列数、前几行原样文本 */
+export function sheetSummary(sheet) {
+  const grid = trimGrid((sheet && sheet.grid) || []);
+  const headerCandidate = grid.find((r) => r.some((c) => String(c ?? '').trim() !== '')) || [];
+  return {
+    rows: grid.length,
+    cols: headerCandidate.length,
+    sample: grid.slice(0, 3).map((r) => r.map((c) => String(c ?? '')).slice(0, 8)),
+  };
 }
 
 /* ═══════════════ 多文件批量导入 ═══════════════ */
@@ -830,13 +1013,16 @@ export async function importSheetFiles(files, db, options = {}) {
       const read = await readTableFile(file);
       const sheet = pickSheet(read.sheets, file.sheetName);
       const assigned = file.specKey || (options.specByFile || {})[file.name];
-      const detected = assigned ? { key: assigned, score: 999 } : detectSpec(file.name, sheet);
+      const detected = assigned ? { key: assigned, score: 999, ambiguous: false, candidates: [] } : detectSpec(file.name, sheet);
       parsedFiles.push({
         file,
         format: read.format,
         sheetName: sheet ? sheet.name : '',
         sheetCount: read.sheets.length,
-        specKey: detected ? detected.key : '',
+        // 歧义时宁可不猜：按错误规格校验会报一堆看不懂的字段错误，不如让用户点一下
+        specKey: detected && !detected.ambiguous ? detected.key : '',
+        suggestion: detected ? detected.candidates || [] : [],
+        notes: read.notes || [],
         rowCount: sheet ? trimGrid(sheet.grid).length : 0,
         sheet,
       });
@@ -883,12 +1069,22 @@ export async function importSheetFiles(files, db, options = {}) {
       warnings: [],
     };
     if (!pf.specKey) {
+      const cand = (pf.suggestion || []).map((c) => c.label).filter(Boolean);
       results.push({
         ...base,
         status: 'error',
         specKey: '',
         specLabel: '',
-        errors: [{ line: 0, field: '场景', message: '无法自动识别这份文件属于哪类数据，请手动选择场景后重试' }],
+        errors: [
+          {
+            line: 0,
+            field: '场景',
+            message: cand.length
+              ? `无法确定这份文件属于哪类数据（候选：${cand.join(' / ')}），请在上表手动选择场景`
+              : '无法自动识别这份文件属于哪类数据，请手动选择场景后重试（可先看解析到的前几行是否正常）',
+          },
+        ],
+        warnings: pf.notes || [],
       });
       continue;
     }

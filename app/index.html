@@ -8,6 +8,7 @@
   <meta name="color-scheme" content="light" />
   <meta name="theme-color" content="#0f172a" />
   <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg" />
+  <link rel="canonical" href="https://zoe-sofia.github.io/ppd-mvp/" />
   <link rel="stylesheet" href="./assets/css/app.css" />
 
   <!-- 分享卡片 -->
@@ -21,6 +22,31 @@
 </head>
 <body>
   <div class="app" id="app"></div>
+
+  <!--
+    部署约定：本页只通过 GitHub Pages（或任意静态服务器）以 http(s) 打开。
+    直接双击文件（file://）时浏览器会拦截 ES 模块，页面必然空白 —— 这里给出明确指引，
+    而不是让用户以为系统坏了。
+  -->
+  <div id="file-warning" hidden style="max-width:640px;margin:64px auto;padding:24px;border:1px solid #e3b7b7;background:#fff5f5;border-radius:8px;font-family:system-ui,sans-serif;line-height:1.8;color:#7a2020">
+    <b style="font-size:16px">请通过网址访问，不要直接双击打开 index.html</b>
+    <p style="margin:8px 0 0">
+      当前地址是 <code>file://</code>，浏览器不允许这种页面加载 ES 模块，所以系统无法启动。
+    </p>
+    <p style="margin:8px 0 0">
+      在线地址：<a href="https://zoe-sofia.github.io/ppd-mvp/">https://zoe-sofia.github.io/ppd-mvp/</a><br />
+      本机预览：在项目根目录执行 <code>python -m http.server 8099</code>，再打开
+      <a href="http://127.0.0.1:8099/app/">http://127.0.0.1:8099/app/</a>
+    </p>
+  </div>
+
+  <script>
+    // 必须在模块脚本之前执行：模块加载失败时这段代码仍会运行
+    if (location.protocol === 'file:') {
+      document.getElementById('file-warning').hidden = false;
+      document.getElementById('app').hidden = true;
+    }
+  </script>
 
   <noscript>
     <div style="padding:24px">本系统需要启用 JavaScript 才能运行。</div>
