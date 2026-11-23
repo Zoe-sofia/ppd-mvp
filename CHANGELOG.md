@@ -10,6 +10,38 @@
 - `parseXlsx` 正向路径的浏览器内测试（依赖 `DOMParser`，Node 环境只能覆盖错误路径）
 - 甘特图拖拽调整
 
+## [0.1.1] - 2026-11-23
+
+修复外部测试数据无法导入的问题，并补齐数据入口的一致性。
+
+### 修复
+- **「场景」入口无法导入外部数据**：弹窗原先只渲染三套内置场景，点击固定调用 `buildSeed()`，
+  外部数据没有任何入口。现在弹窗下半部分新增「导入外部测试数据」，可选 JSON、先校验后载入。
+- **导入后计划页空白**：数据带工序任务但缺 `planVersions` / `activeVersionId` 时，
+  页面按 `t.versionId === db.activeVersionId` 过滤导致任务全部不可见（实测可见 0 条）。
+  现在缺少计划版本会自动建 `PV-IMPORT` 并激活，脱链任务改挂到工作版本，并给出条数提示。
+- **导入数据被误判为旧演示数据**：`seedRev` 为空时也会触发"重建演示数据"提示条，
+  用户一点就把刚导入的数据覆盖回内置场景。判定改为 `seedRev` 非空且版本不一致。
+- **导入无字段校验**：`qty: "abc"`、非法状态、重复单号、不存在的关联、`2026-13-45` 这类
+  "格式对但日期不存在"的值都能入库。现在逐字段校验并给 `集合[下标].字段` 定位。
+- **两条导入路径行为不一致**：「恢复」与「载入场景」各自一套逻辑，现统一走 `core/dataset.js`。
+
+### 新增
+- `app/assets/js/core/dataset.js`：数据集解析（四种顶层信封）、归一、编码→id 解析、版本重连、
+  示例模板 `templateDataset()`。
+- 弹窗内「下载示例数据集」，导出一份可直接改用的最小数据集。
+- 顶栏场景标识：外部数据显示文件名或 `datasetLabel`，不再显示"中等场景"。
+
+### 校验
+- `tests/dataset.test.mjs`：42 项数据集导入校验（信封、字段定位、编码解析、版本重连、
+  备份互导、导入后可直接排产、指标无 NaN）。全量 31 + 49 + 42 = 122 项。
+- 语法门禁扩展到 30 个 ES Module。
+
+### 文档
+- 根 `README.md`：数据入口三类、外部数据集用法、测试项与代码结构。
+- `app/README.md` §5：新增「5.2 导入外部测试数据」完整契约与操作步骤。
+- `docs/mvp-acceptance-walkthrough-v1.0.md` v1.1：新增 §6.5、断言 E-16~E-18、检查项 F-14~F-18、风险 R-14/R-15。
+
 ## [0.1.0] - 2026-11-22
 
 首个可运行版本，覆盖执行方案中的 P0 与 P1 范围。
@@ -35,5 +67,6 @@
 - 键盘可达性：导航支持 Tab / Enter / Space，`aria-current` 标记当前页，弹窗焦点陷阱与关闭后还焦。
 - 站点图标、分享卡片 meta、`.gitignore` / `.gitattributes` / `.editorconfig`。
 
-[Unreleased]: https://github.com/Zoe-sofia/ppd-mvp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Zoe-sofia/ppd-mvp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Zoe-sofia/ppd-mvp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Zoe-sofia/ppd-mvp/releases/tag/v0.1.0

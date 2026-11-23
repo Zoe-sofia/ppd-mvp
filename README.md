@@ -42,6 +42,10 @@ npx serve . -l 8099             # 或 npm run serve:node
 
 数据保存在浏览器 `localStorage`（键名 `ppd-mvp-v1`），刷新不丢；右上角可备份/恢复 JSON、切换三套演示场景（简单 6/7 单、中等 25/27 单、复杂 80/84 单）。
 
+**要跑自己的测试数据**：右上角「场景：…」→「导入外部测试数据」→ 选择 JSON（可先「下载示例数据集」）。
+只要包含 `productionOrders` 即可，其余集合可缺省；缺计划版本/任务版本关联时会自动修复，
+不会出现"导入成功但计划页空白"。格式与行为见 [`app/README.md` §5.2](./app/README.md)。
+
 ## 3. 功能与页面
 
 | # | 页面 | 关键能力 |
@@ -77,7 +81,7 @@ npx serve . -l 8099             # 或 npm run serve:node
 │  │  ├─ css/app.css           # 设计系统：色板 / 表格 / 卡片 / 甘特 / 弹窗
 │  │  ├─ favicon.svg           # 站点图标
 │  │  └─ js/
-│  │     ├─ app.js             # 外壳：路由、导航、场景切换、备份恢复
+│  │     ├─ app.js             # 外壳：路由、导航、场景切换、外部数据集导入、备份恢复
 │  │     ├─ io.js              # 导入导出：CSV / XLSX 解析与逐行校验
 │  │     ├─ core/              # 规则与算法层 + 数据持久层（可脱离 DOM 测试）
 │  │     │  ├─ constants.js    #   口径单一来源：状态枚举、不良原因、约束清单、红线
@@ -91,12 +95,14 @@ npx serve . -l 8099             # 或 npm run serve:node
 │  │     │  ├─ freeze.js       #   冻结期判定与解冻留痕
 │  │     │  ├─ ai.js           #   规则摘要（AI 未接入时的降级实现）
 │  │     │  ├─ store.js        #   localStorage 单库读写、备份/恢复
+│  │     │  ├─ dataset.js      #   外部测试数据集导入：校验 / 归一 / 版本重连 / 示例模板
 │  │     │  └─ seed.js         #   三套演示数据（固定种子，结果可复现）
 │  │     └─ ui/
 │  │        ├─ dom.js          #   表格 / 徽标 / 进度条 / 弹窗 / 提示
 │  │        └─ pages/          #   10 个页面，只取数与渲染，不含业务规则
 │  ├─ tests/verify.mjs         # 31 项算法校验（数量守恒 / 可复现 / 约束拦截）
 │  ├─ tests/io.test.mjs        # 49 项导入导出校验（CSV 解析 / 逐行校验 / 覆盖语义）
+│  ├─ tests/dataset.test.mjs   # 42 项数据集导入校验（信封 / 字段定位 / 版本重连）
 │  ├─ tests/check-syntax.mjs   # 语法门禁
 │  └─ package.json             # 无依赖；仅用于 ESM 与脚本入口
 ├─ docs/                       # 方案文档与界面截图
@@ -118,8 +124,8 @@ npx serve . -l 8099             # 或 npm run serve:node
 
 ```bash
 cd app
-npm test          # 31 项算法校验 + 49 项导入导出校验，全部通过
-npm run check     # 28 个 ES Module 的语法门禁
+npm test          # 31 项算法 + 49 项导入导出 + 42 项数据集导入，全部通过
+npm run check     # 30 个 ES Module 的语法门禁
 ```
 
 **算法侧**（`tests/verify.mjs`，31 项）：三套场景数据完整性、数量守恒（逐单逐工序）、排产可复现（三次一致）、
@@ -130,7 +136,12 @@ npm run check     # 28 个 ES Module 的语法门禁
 内嵌换行 / 空行）、逐行校验的行号与字段定位（必填 / 枚举 / 数字 / 日期 / 关联不存在 / 文件内重复）、
 主数据按编码覆盖而单据重复即拒绝、导出转义、XLSX 非法输入的失败姿态。
 
-CI 在每次 push / PR 上跑上述两项（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
+**数据集导入侧**（`tests/dataset.test.mjs`，42 项）：四种顶层信封、必填集合与形状校验、字段级错误定位
+（数量 / 枚举 / 日期含非法日历日 / 编号重复 / 关联不存在）、编码→id 解析、**脱链任务重挂工作版本**
+（回归：修复前导入后计划页可见 0 条）、缺版本时自动建版本、失效 `activeVersionId` 修正、
+与备份格式互导、导入后可直接排产且 12 项指标无 NaN。
+
+CI 在每次 push / PR 上跑上述三项（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
 
 **未自动化的部分**：页面渲染与弹窗链路（开工 / 完工 / 改派 / 导入 / 版本对比）目前靠手工验收，欢迎补 E2E；
 `parseXlsx` 的正向路径依赖 `DOMParser`，Node 环境只能覆盖其错误路径。
@@ -147,6 +158,12 @@ CI 在每次 push / PR 上跑上述两项（[`.github/workflows/ci.yml`](./.gith
 **本项目不需要任何环境变量或密钥。** 没有后端、没有外部请求、没有埋点；所有数据只存在当前浏览器的 `localStorage` 里，不会上传到任何地方。
 
 - 数据键名：`ppd-mvp-v1`；数据内含 `SEED_REV` 版本号，旧版演示数据会提示一键重建。
+- 数据入口共三类，互不覆盖：
+  1. **内置场景**（顶栏「场景：…」→ 三套演示数据）——重建整套内置数据；
+  2. **外部测试数据集**（同一弹窗下半部分 → 选择 JSON）——导入自己的订单与主数据，校验通过才载入；
+  3. **恢复备份**（顶栏「恢复」）——载入本系统导出的全量备份。
+  后两者共用同一套校验（`core/dataset.js`），外部数据只要包含 `productionOrders` 即可，
+  缺少计划版本会自建工作版本并重连任务，避免"导入成功但计划页空白"。
 - 迁移/清空：右上角「备份」导出 JSON 全量文件，「恢复」导入并二次确认。
 
 ## 9. 明确未做的部分
@@ -166,6 +183,7 @@ CI 在每次 push / PR 上跑上述两项（[`.github/workflows/ci.yml`](./.gith
 | [`app/README.md`](./app/README.md) | **实现说明**：分层、规则如何落地、两处口径解读、验证清单 |
 | [`docs/mvp-execution-plan-v1.0.md`](./docs/mvp-execution-plan-v1.0.md) | 最终执行方案：16 项决策台账、31 项补充、阶段门禁与验收红线 |
 | [`docs/mvp-execution-plan-review-v1.0.md`](./docs/mvp-execution-plan-review-v1.0.md) | 评审稿（已被上者取代，保留用于追溯） |
+| [`docs/mvp-acceptance-walkthrough-v1.0.md`](./docs/mvp-acceptance-walkthrough-v1.0.md) | **测评操作手册**：前置条件、账号与数据归属、逐页操作、导入规格、13 组检查清单、异常处理与风险登记 |
 | [`CHANGELOG.md`](./CHANGELOG.md) | 版本记录 |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | 开发约定、分层纪律、提交规范 |
 
@@ -185,6 +203,6 @@ A dependency-free, build-free production planning & delivery management MVP for 
 
 It keeps planning, materials, execution and delivery in one data model: **hard-constraint-first daily scheduling** at the operation level (capacity consumed in physical units, so the plan and the validator can never disagree), **two-level BOM kitting** with a worst-case rule, **quantity reconciliation gates** that block over-reporting, and a **12-metric dictionary** where every number carries its formula and drill-down.
 
-No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`. 80 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 49 on import/export: CSV edge cases, row-level validation, overwrite-vs-reject semantics) run on every push via GitHub Actions.
+No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`, and your own dataset can be loaded as JSON (top bar → 场景 → 导入外部测试数据). 122 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 49 on import/export: CSV edge cases, row-level validation, overwrite-vs-reject semantics; 42 on dataset import: envelopes, field-level errors, version relinking) run on every push via GitHub Actions.
 
 Licensed under MIT.

@@ -87,13 +87,9 @@ export function exportJson(db) {
   );
 }
 
-/** 恢复：从 JSON 文本导入 */
-export function importJson(text) {
-  const parsed = JSON.parse(text);
-  const db = parsed.data || parsed;
-  if (!db || !Array.isArray(db.productionOrders)) throw new Error('文件结构不符合要求：缺少 productionOrders');
-  return { ...emptyDb(), ...db, schema: SCHEMA };
-}
+// 说明：JSON 导入不再放在本模块。
+// 旧实现只有一句 "缺少 productionOrders" 的兜底，既无法诊断字段错误，也不会修复版本关联，
+// 已由 core/dataset.js 的 importDataset() 取代（校验 + 归一 + 版本重连）。
 
 export function storageInfo() {
   const raw = localStorage.getItem(KEY) || '';
