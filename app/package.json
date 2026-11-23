@@ -1,6 +1,6 @@
 {
   "name": "ppd-mvp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "生产计划与交付管理 MVP —— 面向 PMC 的零依赖静态站点：工序级按日排产、齐套判定、执行勾稽与交付风险",
@@ -27,10 +27,11 @@
   "scripts": {
     "start": "python -m http.server 8099",
     "serve:node": "npx serve . -l 8099",
-    "test": "node tests/verify.mjs && node tests/io.test.mjs && node tests/dataset.test.mjs",
+    "test": "node tests/verify.mjs && node tests/io.test.mjs && node tests/dataset.test.mjs && node tests/import-files.test.mjs",
     "check": "node tests/check-syntax.mjs",
     "verify": "node tests/verify.mjs",
     "test:io": "node tests/io.test.mjs",
-    "test:dataset": "node tests/dataset.test.mjs"
+    "test:dataset": "node tests/dataset.test.mjs",
+    "test:files": "node tests/import-files.test.mjs"
   }
 }

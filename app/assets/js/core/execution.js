@@ -188,7 +188,8 @@ export function deriveOrderStatus(db, order) {
 export function validateReportRows(rows, db) {
   const errors = [];
   rows.forEach((r, i) => {
-    const line = i + 1;
+    // 导入行自带 Excel 行号时用它，报错位置才能和用户看到的行号对上
+    const line = r.line || i + 1;
     const order = (db.productionOrders || []).find((o) => o.code === r.orderCode);
     if (!order) {
       errors.push({ line, field: '生产订单号', message: `订单「${r.orderCode}」不存在` });

@@ -78,6 +78,31 @@ export function clearDb() {
   localStorage.removeItem(KEY);
 }
 
+/**
+ * 清空全部数据：删键 + 写入空库。
+ * 必须写回空库而不是只删键 —— 只删键的话下次启动会重新生成演示场景，
+ * 用户会以为"清空没生效"。
+ */
+export function clearAllData() {
+  clearDb();
+  const db = emptyDb();
+  saveDb(db);
+  return db;
+}
+
+/**
+ * 就地替换数据库内容（保留对象引用）。
+ * 页面、外壳、闭包都持有同一个 db 引用，整体替换会让某处读到旧对象，
+ * 表现为"导入成功但某个页面还是旧数据"。
+ */
+export function replaceDb(target, source) {
+  for (const key of Object.keys(target)) {
+    if (!(key in source)) delete target[key];
+  }
+  Object.assign(target, source);
+  return target;
+}
+
 /** 备份：导出为 JSON 文本 */
 export function exportJson(db) {
   return JSON.stringify(

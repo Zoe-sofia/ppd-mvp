@@ -3,12 +3,13 @@
  * 分层：本文件只负责装配与状态分发，业务规则全部在 core/ 下，页面渲染在 ui/pages/ 下。
  */
 
-import { loadDb, saveDb, exportJson, storageInfo } from './core/store.js';
+import { loadDb, saveDb, exportJson, storageInfo, replaceDb } from './core/store.js';
 import { buildSeed, SCENARIOS, SEED_REV } from './core/seed.js';
-import { importDataset, templateDataset } from './core/dataset.js';
+import { importDataset } from './core/dataset.js';
 import { today } from './core/calendar.js';
 import { syncExceptions } from './core/exceptions.js';
-import { toast, confirmDialog, modal, downloadRaw, readText, esc } from './ui/dom.js';
+import { toast, confirmDialog, downloadRaw, readText, modal, esc } from './ui/dom.js';
+import { openBatchImport, openDataManager, datasetReportHtml } from './ui/import-center.js';
 
 import dashboard from './ui/pages/dashboard.js';
 import orders from './ui/pages/orders.js';
@@ -52,40 +53,12 @@ const staleSeed = !!db.seedRev && db.seedRev !== SEED_REV;
 /** 顶栏场景标识：内置场景显示场景名，外部数据优先显示文件名 */
 function scenarioLabel() {
   if (db.seedScenario && SCENARIOS[db.seedScenario]) return SCENARIOS[db.seedScenario].name;
-  return db.datasetLabel || '外部数据';
+  return db.datasetLabel || '手工 / 导入';
 }
 
-/** 导入校验结果的可视化：错误给字段定位，通过则给集合条数与提示 */
-function datasetReportHtml(rep) {
-  if (!rep.ok) {
-    const shown = rep.errors
-      .slice(0, 8)
-      .map((e) => `· <b>${esc(e.path)}</b>：${esc(e.message)}`)
-      .join('<br>');
-    const more = rep.errors.length > 8 ? `<br>…另有 ${rep.errors.length - 8} 项` : '';
-    return `<div class="notice danger"><b>校验未通过（${rep.errors.length} 项），数据不会载入：</b><br>${shown}${more}</div>`;
-  }
-  const c = rep.counts;
-  const rows = [
-    ['生产订单', c.productionOrders],
-    ['销售订单行', c.salesOrderLines],
-    ['工序任务', c.tasks],
-    ['计划版本', c.planVersions],
-    ['产品 / 物料', `${c.products} / ${c.materials}`],
-    ['工作中心 / BOM', `${c.workCenters} / ${c.bomItems}`],
-    ['库存 / 到货', `${c.inventory} / ${c.inbounds}`],
-  ]
-    .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="mono">${esc(String(v))}</td></tr>`)
-    .join('');
-  return `
-    <div class="notice ok"><b>校验通过</b>：${esc(rep.meta.datasetLabel)} · 工作版本 ${esc(rep.meta.versionCode)}</div>
-    <table class="tb"><thead><tr><th>集合</th><th>条数</th></tr></thead><tbody>${rows}</tbody></table>
-    ${
-      rep.warnings.length
-        ? `<div class="notice warn" style="margin-top:10px"><b>提示：</b><br>${rep.warnings.map((w) => `· ${esc(w)}`).join('<br>')}</div>`
-        : ''
-    }`;
-}
+/** 空库判定：清空后或首次导入前，页面没有任何业务数据 */
+const isEmptyDb = () =>
+  !db.products.length && !db.materials.length && !db.productionOrders.length && !db.workCenters.length;
 
 const ctx = {
   db,
@@ -146,10 +119,21 @@ function shellHtml() {
       <span class="crumb" id="page-crumb"></span>
       <span class="spacer"></span>
       <span class="asof" title="系统基准日：所有日期口径以此为参照">基准日 ${AS_OF}</span>
-      <button class="btn sm" data-act="scenario" title="切换内置场景，或导入外部测试数据">场景：${esc(scenarioLabel())}</button>
+      <button class="btn sm" data-act="import" title="导入 Excel / CSV，可多文件，按场景合并">导入</button>
+      <button class="btn sm" data-act="scenario" title="数据管理：切换内置场景、整库 JSON、导入履历、清空数据">场景：${esc(scenarioLabel())}</button>
       <button class="btn sm" data-act="backup">备份</button>
       <button class="btn sm" data-act="restore">恢复</button>
     </div>
+    ${
+      isEmptyDb()
+        ? `<div class="stale-bar" data-empty-bar>
+            <span>当前数据库为空（已清空或尚未导入）。可导入 Excel / CSV 建立数据，或载入内置演示场景。</span>
+            <span class="spacer"></span>
+            <button class="btn sm primary" data-act="import">导入 Excel / CSV</button>
+            <button class="btn sm" data-act="scenario">载入演示场景</button>
+          </div>`
+        : ''
+    }
     ${
       staleSeed
         ? `<div class="stale-bar">
@@ -186,6 +170,11 @@ function render() {
     }
     const foot = app.querySelector('.sidebar-foot b:last-of-type');
     if (foot) foot.textContent = db.settings.aiEnabled ? '已接入' : '未接入（规则摘要）';
+    // 合并导入后数据来源可能从"内置场景"变成"手工 / 导入"，顶栏标识要跟着变
+    const scBtn = app.querySelector('[data-act="scenario"]');
+    if (scBtn) scBtn.textContent = `场景：${scenarioLabel()}`;
+    const emptyBar = app.querySelector('[data-empty-bar]');
+    if (emptyBar && !isEmptyDb()) emptyBar.remove();
   }
 
   const p = currentPage();
@@ -225,96 +214,10 @@ function bindShell() {
     });
   });
 
-  document.querySelector('[data-act="scenario"]').addEventListener('click', () => {
-    const body = `
-      <div class="notice info">载入场景会<b>重建整套内置测试数据</b>，当前数据将被覆盖。建议先「备份」。</div>
-      ${Object.values(SCENARIOS)
-        .map(
-          (s) => `<div class="rowline">
-            <div>
-              <b>${esc(s.name)}</b>
-              <div class="small">${esc(s.desc)}</div>
-            </div>
-            <div class="r"><button class="btn sm primary" data-sc="${s.code}">载入</button></div>
-          </div>`
-        )
-        .join('')}
-      <div class="hr"></div>
-      <h4 style="margin:0 0 6px">导入外部测试数据</h4>
-      <div class="small muted" style="margin-bottom:10px">
-        支持 JSON。文件需包含 <b>productionOrders</b>（生产订单）；其余集合可缺省。
-        可接受三种信封：直接放数据集对象，或包在 <code>data</code> / <code>dataset</code> / <code>db</code> 里。
-        缺少计划版本时会自动建立工作版本，脱链的工序任务会重新挂到该版本上，避免"导入成功但计划页空白"。
-      </div>
-      <div class="field">
-        <label>选择数据集文件</label>
-        <input type="file" id="ds-file" accept=".json,application/json" />
-      </div>
-      <div id="ds-out"></div>
-      <div class="inline" style="margin-top:10px">
-        <button class="btn sm" data-ds-tpl>下载示例数据集</button>
-        <button class="btn sm primary" data-ds-load disabled>载入该数据集</button>
-      </div>`;
-    const m = modal({ title: '测试数据：内置场景与外部导入', body, wide: true });
-    m.root.querySelectorAll('[data-sc]').forEach((b) =>
-      b.addEventListener('click', async () => {
-        const ok = await confirmDialog('确认覆盖', '当前所有数据将被重建，确认继续？', '重建数据');
-        if (!ok) return;
-        db = buildSeed(b.dataset.sc, AS_OF);
-        saveDb(db);
-        m.close();
-        location.hash = '#/dashboard';
-        location.reload();
-      })
-    );
-
-    /* ── 外部数据集：选文件即校验，校验通过才允许载入 ── */
-    let pending = null;
-    const fileInput = m.root.querySelector('#ds-file');
-    const out = m.root.querySelector('#ds-out');
-    const loadBtn = m.root.querySelector('[data-ds-load]');
-
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files && fileInput.files[0];
-      pending = null;
-      loadBtn.disabled = true;
-      out.innerHTML = '';
-      if (!file) return;
-      try {
-        const text = await readText(file);
-        const res = importDataset(text, { fileName: file.name });
-        pending = res.ok ? res : null;
-        out.innerHTML = datasetReportHtml(res.report);
-        loadBtn.disabled = !res.ok;
-      } catch (e) {
-        out.innerHTML = `<div class="notice danger"><b>读取失败：</b>${esc(e.message)}</div>`;
-      }
-    });
-
-    loadBtn.addEventListener('click', async () => {
-      if (!pending || !pending.db) return;
-      const c = pending.report.counts;
-      const ok = await confirmDialog(
-        '载入外部测试数据',
-        `将用「${pending.db.datasetLabel}」覆盖当前全部数据（${c.productionOrders} 张生产订单 / ${c.tasks} 道工序），确认继续？建议先「备份」。`,
-        '载入'
-      );
-      if (!ok) return;
-      if (!saveDb(pending.db)) {
-        toast('保存失败：本地存储可能已满，请先备份并减少数据量', 'danger');
-        return;
-      }
-      db = pending.db;
-      m.close();
-      location.hash = '#/dashboard';
-      location.reload();
-    });
-
-    m.root.querySelector('[data-ds-tpl]').addEventListener('click', () => {
-      downloadRaw('外部测试数据集模板.json', JSON.stringify(templateDataset(AS_OF), null, 2), 'application/json');
-      toast('示例数据集已导出，改完可通过「选择数据集文件」载入', 'ok');
-    });
-  });
+  document.querySelector('[data-act="scenario"]').addEventListener('click', () => openDataManager(ctx));
+  document.querySelectorAll('[data-act="import"]').forEach((b) =>
+    b.addEventListener('click', () => openBatchImport(ctx))
+  );
 
   document.querySelector('[data-act="backup"]').addEventListener('click', () => {
     downloadRaw(`生产计划数据备份_${AS_OF}.json`, exportJson(db), 'application/json');
@@ -351,7 +254,7 @@ function bindShell() {
         toast('保存失败：本地存储可能已满，请先备份并减少数据量', 'danger');
         return;
       }
-      db = res.db;
+      replaceDb(db, res.db);
       location.reload();
     };
     input.click();
@@ -362,7 +265,7 @@ function bindShell() {
     rebuild.addEventListener('click', async () => {
       const ok = await confirmDialog('重建演示数据', '当前数据将被整套演示数据覆盖，确认继续？建议先「备份」。', '重建');
       if (!ok) return;
-      db = buildSeed(ctx.scenario, AS_OF);
+      replaceDb(db, buildSeed(ctx.scenario, AS_OF));
       saveDb(db);
       location.reload();
     });

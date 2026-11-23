@@ -35,3 +35,6 @@ yarn-error.log*
 tmp/
 *.tmp
 *.bak
+
+# ── 本地临时目录（E2E、截图、浏览器 profile）──
+.tmp/

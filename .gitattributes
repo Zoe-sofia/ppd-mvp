@@ -23,6 +23,7 @@ LICENSE   text eol=lf
 *.webp    binary
 *.ico     binary
 *.xlsx    binary
+*.xls     binary
 *.zip     binary
 
 # 中文为主的文档，GitHub 不计入语言统计

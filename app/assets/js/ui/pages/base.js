@@ -4,7 +4,8 @@
  */
 
 import { badge, esc, modal, num, table, tabs, toast, download, confirmDialog } from '../dom.js';
-import { IMPORT_SPECS, templateCsv, parseCsv, validateImport, applyImport, exportCsv } from '../../io.js';
+import { IMPORT_SPECS, templateCsv, exportCsv } from '../../io.js';
+import { openBatchImport, openDataManager } from '../import-center.js';
 import { uid } from '../../core/store.js';
 
 let tab = 'products';
@@ -41,7 +42,8 @@ export default {
           <button class="btn sm" data-act="tpl">下载模板</button>
           <button class="btn sm" data-act="import">导入文件</button>
           <span class="spacer"></span>
-          <span class="small">主数据按编码覆盖更新；业务单据重复即拒绝</span>
+          <span class="small">主数据按编码覆盖更新；业务单据重复即跳过</span>
+          <button class="btn sm ghost" data-act="manager">数据管理</button>
         </div>
         ${renderTab(db, tab)}
       </div>`;
@@ -61,7 +63,8 @@ export default {
       download(`${IMPORT_SPECS[spec].label}_导入模板.csv`, templateCsv(spec));
       toast('模板已下载，可直接用 Excel 填写后另存为 CSV 或 XLSX', 'ok');
     });
-    view.querySelector('[data-act="import"]').addEventListener('click', () => importDialog(ctx, spec));
+    view.querySelector('[data-act="import"]').addEventListener('click', () => openBatchImport(ctx, { specKey: spec }));
+    view.querySelector('[data-act="manager"]').addEventListener('click', () => openDataManager(ctx));
 
     view.querySelectorAll('[data-edit]').forEach((b) =>
       b.addEventListener('click', () => editEntity(ctx, tab, b.dataset.edit))
@@ -385,56 +388,3 @@ function exportTab(ctx, key) {
   toast('已导出 CSV', 'ok');
 }
 
-/* ───────── 导入 ───────── */
-function importDialog(ctx, specKey) {
-  const s = IMPORT_SPECS[specKey];
-  modal({
-    title: `导入 ${s.label}（${s.kind === 'MASTER' ? '主数据 · 按编码覆盖' : '业务单据 · 重复即拒绝'}）`,
-    body: `
-      <div class="notice info">支持 CSV（UTF-8）与 XLSX。导入前会逐行校验：必填、编码唯一、关联存在、数据类型；
-      <b>存在错误行时整批不入库</b>，并给出具体行号与原因。</div>
-      <div class="field"><label>选择文件</label><input type="file" id="f" accept=".csv,.xlsx" /></div>
-      <div id="out"></div>`,
-    footer: `<button class="btn" data-c>关闭</button><button class="btn" data-check>校验</button><button class="btn primary" data-ok>校验并导入</button>`,
-    onMount(root, close) {
-      root.querySelector('[data-c]').addEventListener('click', close);
-      const out = root.querySelector('#out');
-
-      const doCheck = async (apply) => {
-        const f = root.querySelector('#f').files[0];
-        if (!f) {
-          out.innerHTML = '<div class="notice warn">请先选择文件</div>';
-          return null;
-        }
-        try {
-          const text = await f.text();
-          const parsed = parseCsv(text);
-          const res = validateImport(specKey, parsed, ctx.db);
-          if (res.errors.length) {
-            out.innerHTML = `<div class="notice danger"><b>${res.errors.length} 处校验未通过，整批未导入：</b><br/>${res.errors
-              .slice(0, 12)
-              .map((e) => `第 ${e.line} 行 · ${esc(e.field)}：${esc(e.message)}`)
-              .join('<br/>')}</div>`;
-            return null;
-          }
-          if (!apply) {
-            out.innerHTML = `<div class="notice ok">校验通过：共 ${res.entities.length} 行可导入。</div>`;
-            return res;
-          }
-          const r = applyImport(specKey, res.entities, ctx.db);
-          ctx.db.importLogs = ctx.db.importLogs || [];
-          ctx.db.importLogs.push({ at: ctx.asOf, spec: specKey, created: r.created, updated: r.updated, rejected: r.rejected.length });
-          close();
-          ctx.commit(`导入完成：新增 ${r.created}，更新 ${r.updated}${r.rejected.length ? `，拒绝 ${r.rejected.length}` : ''}`);
-          return r;
-        } catch (e) {
-          out.innerHTML = `<div class="notice danger">解析失败：${esc(e.message)}</div>`;
-          return null;
-        }
-      };
-
-      root.querySelector('[data-check]').addEventListener('click', () => doCheck(false));
-      root.querySelector('[data-ok]').addEventListener('click', () => doCheck(true));
-    },
-  });
-}

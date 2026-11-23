@@ -40,11 +40,15 @@ npx serve . -l 8099             # 或 npm run serve:node
 
 > **不要双击 `index.html`。** 浏览器对 `file://` 下的 ES module 有 CORS 限制，页面会白屏；必须通过 http 打开。
 
-数据保存在浏览器 `localStorage`（键名 `ppd-mvp-v1`），刷新不丢；右上角可备份/恢复 JSON、切换三套演示场景（简单 6/7 单、中等 25/27 单、复杂 80/84 单）。
+数据保存在浏览器 `localStorage`（键名 `ppd-mvp-v1`），刷新不丢；右上角可导入 Excel/CSV、备份/恢复 JSON、切换三套演示场景（简单 6/7 单、中等 25/27 单、复杂 80/84 单）。
 
-**要跑自己的测试数据**：右上角「场景：…」→「导入外部测试数据」→ 选择 JSON（可先「下载示例数据集」）。
-只要包含 `productionOrders` 即可，其余集合可缺省；缺计划版本/任务版本关联时会自动修复，
-不会出现"导入成功但计划页空白"。格式与行为见 [`app/README.md` §5.2](./app/README.md)。
+**要跑自己的数据**：右上角「导入」→ 一次选中多个 Excel（`.xlsx` / `.xls`）或 CSV 文件。
+系统按内容自动识别每份文件属于产品、物料、BOM、库存、销售订单行还是生产订单，逐行校验后**合并**进现有库：
+主数据按编码更新、单据重复即跳过，**不清空已有数据，销售与生产订单分别导入也不会互相覆盖**。
+手工录入的记录会保留。详细规则见 [`app/README.md` §5.2](./app/README.md)。
+
+**清空/重置**：顶栏「场景：…」→「数据管理」，可切内置场景、载入整库 JSON、查看导入履历，或**清空全部数据**
+（需输入「清空」确认，默认先自动导出备份）。
 
 ## 3. 功能与页面
 
@@ -55,10 +59,10 @@ npx serve . -l 8099             # 或 npm run serve:node
 | 03 | 物料管理 | 齐套分析五态、物料预留、到货信息、单订单物料明细展开 |
 | 04 | 生产排程 | 三套权重策略自动排产、甘特视图、硬约束拦截、逐工序调整、计划确认 |
 | 05 | 计划版本 | 版本快照与对比、冻结期判定与解冻留痕 |
-| 06 | 执行跟踪 | 开工/完工申报过三闸门、报工履历、停工记录、批量导入 |
+| 06 | 执行跟踪 | 开工/完工申报过三闸门、报工履历、停工记录、Excel 报工导入 |
 | 07 | 交付管理 | 日期链、五类延期识别、发货登记（内部节点） |
 | 08 | 异常中心 | 自动识别、去重、状态流转、规则摘要（AI 未接入的降级态） |
-| 09 | 基础数据 | 工作中心、工作日历、BOM、库存、工艺路线维护与 CSV/XLSX 导入 |
+| 09 | 基础数据 | 工作中心、工作日历、BOM、库存、工艺路线维护；Excel/CSV 多文件导入与数据管理入口 |
 | 10 | 统计分析 | 12 项指标按交付/生产/物料分组，指标口径可查、明细可下钻 |
 
 <p align="center">
@@ -81,8 +85,8 @@ npx serve . -l 8099             # 或 npm run serve:node
 │  │  ├─ css/app.css           # 设计系统：色板 / 表格 / 卡片 / 甘特 / 弹窗
 │  │  ├─ favicon.svg           # 站点图标
 │  │  └─ js/
-│  │     ├─ app.js             # 外壳：路由、导航、场景切换、外部数据集导入、备份恢复
-│  │     ├─ io.js              # 导入导出：CSV / XLSX 解析与逐行校验
+│  │     ├─ app.js             # 外壳：路由、导航、场景切换、备份恢复、空库提示
+│  │     ├─ io.js              # 导入规格与合并语义：场景识别 / 逐行校验 / 去重 / 批量编排
 │  │     ├─ core/              # 规则与算法层 + 数据持久层（可脱离 DOM 测试）
 │  │     │  ├─ constants.js    #   口径单一来源：状态枚举、不良原因、约束清单、红线
 │  │     │  ├─ calendar.js     #   工作日历：可用工作日、不可生产日、顺延
@@ -94,15 +98,19 @@ npx serve . -l 8099             # 或 npm run serve:node
 │  │     │  ├─ exceptions.js   #   异常识别、去重、状态流转
 │  │     │  ├─ freeze.js       #   冻结期判定与解冻留痕
 │  │     │  ├─ ai.js           #   规则摘要（AI 未接入时的降级实现）
-│  │     │  ├─ store.js        #   localStorage 单库读写、备份/恢复
-│  │     │  ├─ dataset.js      #   外部测试数据集导入：校验 / 归一 / 版本重连 / 示例模板
+│  │     │  ├─ store.js        #   localStorage 单库读写、备份/恢复、清空、就地替换
+│  │     │  ├─ sheet.js        #   CSV（编码/分隔符嗅探）/ XLSX（zip+XML）/ XLS（OLE2+BIFF8）解析
+│  │     │  ├─ dataset.js      #   整库 JSON 导入：校验 / 归一 / 版本重连 / 示例模板
 │  │     │  └─ seed.js         #   三套演示数据（固定种子，结果可复现）
 │  │     └─ ui/
 │  │        ├─ dom.js          #   表格 / 徽标 / 进度条 / 弹窗 / 提示
+│  │        ├─ import-center.js#   批量导入（多文件/场景识别）与数据管理（场景/整库/履历/清空）
 │  │        └─ pages/          #   10 个页面，只取数与渲染，不含业务规则
 │  ├─ tests/verify.mjs         # 31 项算法校验（数量守恒 / 可复现 / 约束拦截）
-│  ├─ tests/io.test.mjs        # 49 项导入导出校验（CSV 解析 / 逐行校验 / 覆盖语义）
-│  ├─ tests/dataset.test.mjs   # 42 项数据集导入校验（信封 / 字段定位 / 版本重连）
+│  ├─ tests/io.test.mjs        # 50 项导入导出校验（CSV 解析 / 逐行校验 / 覆盖语义 / 日期容错）
+│  ├─ tests/dataset.test.mjs   # 42 项整库 JSON 校验（信封 / 字段定位 / 版本重连）
+│  ├─ tests/import-files.test.mjs # 52 项 Excel/CSV 批量导入校验（三格式 / 多批次 / 互不覆盖）
+│  ├─ tests/fixtures/          # 测试样本（xlsx / xls / GBK-CSV）与生成脚本
 │  ├─ tests/check-syntax.mjs   # 语法门禁
 │  └─ package.json             # 无依赖；仅用于 ESM 与脚本入口
 ├─ docs/                       # 方案文档与界面截图
@@ -124,53 +132,64 @@ npx serve . -l 8099             # 或 npm run serve:node
 
 ```bash
 cd app
-npm test          # 31 项算法 + 49 项导入导出 + 42 项数据集导入，全部通过
-npm run check     # 30 个 ES Module 的语法门禁
+npm test          # 31 算法 + 50 导入导出 + 42 整库 JSON + 52 Excel/CSV 批量导入 = 175 项，全部通过
+npm run check     # 33 个 ES Module 的语法门禁
 ```
 
 **算法侧**（`tests/verify.mjs`，31 项）：三套场景数据完整性、数量守恒（逐单逐工序）、排产可复现（三次一致）、
 三套策略输出可区分、HC-01~05 逐条构造违规必须被识别、合法计划无硬约束、**约束判定与任务顺序无关**、
 三闸门拒绝超量开工/完工、12 项指标无 NaN、异常覆盖 ≥3 类且去重生效。
 
-**导入导出侧**（`tests/io.test.mjs`，49 项）：模板表头与规格一致、CSV 边界（BOM / CRLF / 引号内逗号 /
+**导入导出侧**（`tests/io.test.mjs`，50 项）：模板表头与规格一致、CSV 边界（BOM / CRLF / 引号内逗号 /
 内嵌换行 / 空行）、逐行校验的行号与字段定位（必填 / 枚举 / 数字 / 日期 / 关联不存在 / 文件内重复）、
-主数据按编码覆盖而单据重复即拒绝、导出转义、XLSX 非法输入的失败姿态。
+主数据按编码覆盖而单据重复即拒绝、导出转义、XLSX 非法输入的失败姿态、日期容错（斜杠日期与 Excel 序列号）。
 
 **数据集导入侧**（`tests/dataset.test.mjs`，42 项）：四种顶层信封、必填集合与形状校验、字段级错误定位
 （数量 / 枚举 / 日期含非法日历日 / 编号重复 / 关联不存在）、编码→id 解析、**脱链任务重挂工作版本**
 （回归：修复前导入后计划页可见 0 条）、缺版本时自动建版本、失效 `activeVersionId` 修正、
 与备份格式互导、导入后可直接排产且 12 项指标无 NaN。
 
-CI 在每次 push / PR 上跑上述三项（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
+**Excel/CSV 批量导入侧**（`tests/import-files.test.mjs`，52 项）：真实 xlsx / xls / GBK-CSV 文件解析
+（标题行、日期序列号、多工作表、共享字符串跨 `CONTINUE` 的 601 行大表）、表头别名与场景自动识别、
+多文件按依赖顺序处理、错误隔离（坏文件不影响好文件）、**销售与生产分别导入互不覆盖**、
+重复导入幂等、手工录入保留、BOM/库存按自然键去重、清空后不重建演示数据且可重新导入。
 
-**未自动化的部分**：页面渲染与弹窗链路（开工 / 完工 / 改派 / 导入 / 版本对比）目前靠手工验收，欢迎补 E2E；
-`parseXlsx` 的正向路径依赖 `DOMParser`，Node 环境只能覆盖其错误路径。
+CI 在每次 push / PR 上跑上述四项（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
+
+**未自动化的部分**：页面渲染与弹窗链路（开工 / 完工 / 改派 / 导入 / 版本对比）目前靠手工验收，欢迎补 E2E。
+导入链路另做过一次无头 Chromium 手工回归：真实文件选择器完成 3 文件导入并写库、重复导入条数不变、
+清空确认与空库页面渲染均正常。
 
 ## 7. 运行环境与依赖
 
 - **依赖：0 个。** `package.json` 里没有 `dependencies`，也不加载任何 CDN 资源，断网可用。
 - **Node 仅用于测试**（≥18）；运行系统本身不需要 Node。
 - **浏览器**：Chrome / Edge 90+；Firefox 113+；Safari 16.4+。
-  XLSX 导入依赖 `DecompressionStream`，不支持的浏览器会明确提示"改用 CSV 模板"并保留 CSV 通路。
+  `.xlsx` 导入依赖原生 `DecompressionStream`；`.xls` 与 CSV（含 GBK）不依赖它。
 
 ## 8. 环境变量与数据
 
 **本项目不需要任何环境变量或密钥。** 没有后端、没有外部请求、没有埋点；所有数据只存在当前浏览器的 `localStorage` 里，不会上传到任何地方。
 
 - 数据键名：`ppd-mvp-v1`；数据内含 `SEED_REV` 版本号，旧版演示数据会提示一键重建。
-- 数据入口共三类，互不覆盖：
-  1. **内置场景**（顶栏「场景：…」→ 三套演示数据）——重建整套内置数据；
-  2. **外部测试数据集**（同一弹窗下半部分 → 选择 JSON）——导入自己的订单与主数据，校验通过才载入；
-  3. **恢复备份**（顶栏「恢复」）——载入本系统导出的全量备份。
-  后两者共用同一套校验（`core/dataset.js`），外部数据只要包含 `productionOrders` 即可，
-  缺少计划版本会自建工作版本并重连任务，避免"导入成功但计划页空白"。
-- 迁移/清空：右上角「备份」导出 JSON 全量文件，「恢复」导入并二次确认。
+- 数据入口共四类：第 1 类是**合并**，第 2~4 类是**整库替换**：
+  1. **Excel/CSV 批量导入**（顶栏「导入」或基础数据页「导入文件」）——多文件、自动识别场景、合并进现有库，
+     主数据按编码更新（保留 id）、单据重复即跳过；**不清空、不跨场景覆盖**，手工录入的数据保留；
+  2. **内置场景**（顶栏「场景：…」）——重建整套演示数据（替换）；
+  3. **整库 JSON**（「场景」→「数据管理」）——载入测试数据集或备份（替换）；
+  4. **恢复备份**（顶栏「恢复」）——载入本系统导出的全量备份（替换）。
+  2~4 共用 `core/dataset.js` 的校验：只要包含 `productionOrders` 即可，缺计划版本会自建工作版本并重连任务，
+  避免"导入成功但计划页空白"。
+- 清空：顶栏「场景：…」→「数据管理」→「清空全部数据」，需输入「清空」确认，默认先自动导出备份；
+  清空后不会自动重建演示数据，顶栏会出现"数据库为空"提示条。
+- 迁移：右上角「备份」导出 JSON 全量文件，「恢复」导入并二次确认。
 
 ## 9. 明确未做的部分
 
 与方案 §10 一致，避免误用：
 
-- 报废 / 返工 / 返修流程；多工厂与多组织；与 ERP / MES 的系统集成。
+- 报废 / 返工 / 返修流程；多工厂与多组织。
+- 与 ERP / MES / WMS 的系统集成：当前只有文件级导入导出（Excel/CSV/JSON），没有 API、账号打通与实时同步；字段映射集中在 `io.js` 的 `IMPORT_SPECS`，将来接入接口只需在 `core/` 增加 adapter。
 - 权限体系（单用户本机、无登录）、审批流、消息通知。
 - 真正的最优化求解（当前是确定性启发式）。
 - AI 能力：当前为**降级态**——异常详情的"事实/推测/建议"由确定性规则模板生成，界面明确标注 `AI 未接入`，且只读不改数据。接入真实模型时只需替换 `core/ai.js`。
@@ -203,6 +222,8 @@ A dependency-free, build-free production planning & delivery management MVP for 
 
 It keeps planning, materials, execution and delivery in one data model: **hard-constraint-first daily scheduling** at the operation level (capacity consumed in physical units, so the plan and the validator can never disagree), **two-level BOM kitting** with a worst-case rule, **quantity reconciliation gates** that block over-reporting, and a **12-metric dictionary** where every number carries its formula and drill-down.
 
-No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`, and your own dataset can be loaded as JSON (top bar → 场景 → 导入外部测试数据). 122 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 49 on import/export: CSV edge cases, row-level validation, overwrite-vs-reject semantics; 42 on dataset import: envelopes, field-level errors, version relinking) run on every push via GitHub Actions.
+No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`.
+
+Your own data can be imported from **Excel (`.xlsx` / `.xls`) or CSV** — several files at once, scenarios detected from sheet names/headers, merged rather than replacing: master data is updated by code (ids preserved), documents are skipped when duplicated, so sales and production orders never overwrite each other and manual entries survive. A full-dataset JSON import and a guarded "clear all data" action are available under 场景 → 数据管理. 175 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 50 on import/export: CSV edge cases, row-level validation, date tolerance; 42 on JSON dataset import: envelopes, field-level errors, version relinking; 52 on Excel/CSV batch import: real xlsx/xls/GBK fixtures, multi-batch idempotency, cross-scenario isolation, clear-all) run on every push via GitHub Actions.
 
 Licensed under MIT.

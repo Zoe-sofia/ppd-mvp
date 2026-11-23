@@ -106,8 +106,8 @@ check(
 
 const dup = validateImport('products', parseCsv(csv(['产品编号,产品名称,单位', 'P-1,A,台', 'P-1,B,台'])), db0);
 check(
-  '文件内编码重复：定位到第 3 行',
-  dup.errors.length === 1 && dup.errors[0].line === 3 && /文件内编码重复/.test(dup.errors[0].message),
+  '文件内编码重复：定位到第 3 行并指出与第 2 行相同',
+  dup.errors.length === 1 && dup.errors[0].line === 3 && /文件内重复/.test(dup.errors[0].message),
   JSON.stringify(dup.errors)
 );
 check('重复行不计入可导入实体', dup.entities.length === 1, `实际 ${dup.entities.length}`);
@@ -128,13 +128,28 @@ check(
 
 const badDate = validateImport(
   'inbounds',
-  parseCsv(csv(['物料编号,数量,预计到货日,是否确认', 'M-1,10,2026/12/01,是'])),
+  parseCsv(csv(['物料编号,数量,预计到货日,是否确认', 'M-1,10,2026-02-30,是'])),
   db0
 );
 check(
-  '日期格式错误被拦下',
-  badDate.errors.some((e) => /YYYY-MM-DD/.test(e.message)),
+  '格式对但不存在的日期被拦下（2 月 30 日）',
+  badDate.errors.some((e) => /日期无法识别/.test(e.message)),
   JSON.stringify(badDate.errors)
+);
+
+const dbDate = emptyDb();
+dbDate.materials.push({ id: 'M-1', code: 'M-1', name: '钢', unit: '件', type: 'RAW' });
+const slashDate = validateImport(
+  'inbounds',
+  parseCsv(csv(['物料编号,数量,预计到货日,是否确认', 'M-1,10,2026/12/1,是', 'M-1,20,46387,否'])),
+  dbDate
+);
+check(
+  '日期容错：2026/12/1 与 Excel 序列号都归一为 YYYY-MM-DD',
+  slashDate.errors.length === 0 &&
+    slashDate.entities[0].entity.expectedDate === '2026-12-01' &&
+    /^2026-1[12]-\d{2}$/.test(slashDate.entities[1].entity.expectedDate),
+  JSON.stringify([slashDate.errors, slashDate.entities.map((x) => x.entity.expectedDate)])
 );
 
 const dbBool = emptyDb();

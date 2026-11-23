@@ -15,7 +15,8 @@ import {
   appendActual,
 } from '../../core/execution.js';
 import { kittingOf } from '../../core/rules.js';
-import { parseCsv } from '../../io.js';
+import { normalizeDate } from '../../io.js';
+import { readTableFile, trimGrid } from '../../core/sheet.js';
 
 let selected = '';
 
@@ -313,9 +314,9 @@ function importModal(ctx) {
   modal({
     title: 'Excel 报工导入',
     body: `
-      <div class="notice info">支持 CSV（UTF-8）与 XLSX。列：生产订单号、工序号、日期、合格数、不良数、不良原因。
-      单据类导入<b>重复即拒绝</b>，且逐行校验数量流转关系，错误行不会入库。</div>
-      <div class="field"><label>选择文件</label><input type="file" id="f" accept=".csv,.xlsx" /></div>
+      <div class="notice info">支持 Excel（.xlsx / .xls）与 CSV（含 GBK）。列：生产订单号、工序号、日期、合格数、不良数、不良原因。
+      表头放在前 5 行内即可（允许上方有标题行）；<b>逐行校验数量流转关系，存在错误行时整批不入库</b>。</div>
+      <div class="field"><label>选择文件</label><input type="file" id="f" accept=".xlsx,.xls,.csv,.txt" /></div>
       <div id="out"></div>`,
     footer: `<button class="btn" data-c>关闭</button><button class="btn primary" data-ok>校验并导入</button>`,
     onMount(root, close) {
@@ -328,16 +329,8 @@ function importModal(ctx) {
           return;
         }
         try {
-          const text = await f.text();
-          const parsed = parseCsv(text);
-          const rows = parsed.rows.map((r) => ({
-            orderCode: r['生产订单号'],
-            seq: r['工序号'],
-            date: r['日期'],
-            good: Number(r['合格数'] || 0),
-            scrap: Number(r['不良数'] || 0),
-            reason: r['不良原因'] || 'OTHER',
-          }));
+          const buf = await f.arrayBuffer();
+          const rows = await parseReportFile(f.name, buf);
           const errors = validateReportRows(rows, db);
           if (errors.length) {
             out.innerHTML = `<div class="notice danger"><b>${errors.length} 行未通过校验，整批未导入：</b><br/>${errors
@@ -363,4 +356,62 @@ function importModal(ctx) {
       });
     },
   });
+}
+
+/* ───────── 报工文件解析（Excel / CSV 共用） ───────── */
+const REPORT_COLS = {
+  orderCode: ['生产订单号', '生产订单', '订单号', '工单号', 'ordercode', 'mo'],
+  seq: ['工序号', '工序', '序号', 'seq'],
+  date: ['日期', '报工日期', '完工日期', 'date'],
+  good: ['合格数', '合格数量', '合格', 'goodqty', 'good'],
+  scrap: ['不良数', '不良数量', '不良', 'scrapqty', 'scrap'],
+  reason: ['不良原因', '原因', 'reason'],
+};
+const REASON_ALIAS = { 尺寸超差: 'DIMENSION', 装配不良: 'ASSEMBLY', 来料不良: 'INCOMING', 设备故障: 'EQUIPMENT', 其他: 'OTHER' };
+const normCell = (s) => String(s ?? '').replace(/[\s\u3000]/g, '').toLowerCase();
+
+async function parseReportFile(name, buffer) {
+  const { sheets } = await readTableFile({ name, buffer });
+  const sheet = (sheets || []).find((s) => trimGrid(s.grid).length > 1) || (sheets || [])[0];
+  if (!sheet) throw new Error('文件中没有可读取的工作表');
+  const grid = trimGrid(sheet.grid);
+  if (!grid.length) throw new Error('工作表为空');
+
+  let headIdx = -1;
+  let cols = {};
+  for (let r = 0; r < Math.min(6, grid.length); r += 1) {
+    const found = {};
+    grid[r].forEach((h, i) => {
+      const key = normCell(h);
+      for (const [field, aliases] of Object.entries(REPORT_COLS)) {
+        if (found[field] === undefined && aliases.includes(key)) found[field] = i;
+      }
+    });
+    if (found.orderCode !== undefined && found.seq !== undefined) {
+      headIdx = r;
+      cols = found;
+      break;
+    }
+  }
+  if (headIdx < 0) throw new Error('未识别到表头：需要包含「生产订单号」与「工序号」两列（表头请放在前 5 行内）');
+
+  const rows = [];
+  for (let r = headIdx + 1; r < grid.length; r += 1) {
+    const line = grid[r] || [];
+    const orderCode = String(line[cols.orderCode] ?? '').trim();
+    if (!orderCode) continue;
+    const rawDate = cols.date === undefined ? '' : String(line[cols.date] ?? '').trim();
+    const reasonRaw = cols.reason === undefined ? '' : String(line[cols.reason] ?? '').trim();
+    rows.push({
+      line: r + 1,
+      orderCode,
+      seq: String(line[cols.seq] ?? '').trim(),
+      date: normalizeDate(rawDate) || rawDate,
+      good: Number(String(line[cols.good] ?? '0').replace(/[,，\s]/g, '') || 0),
+      scrap: Number(String(line[cols.scrap] ?? '0').replace(/[,，\s]/g, '') || 0),
+      reason: REASON_ALIAS[reasonRaw] || reasonRaw.toUpperCase() || 'OTHER',
+    });
+  }
+  if (!rows.length) throw new Error('表头下没有数据行');
+  return rows;
 }
