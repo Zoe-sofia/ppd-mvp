@@ -30,7 +30,7 @@ export default {
         「准时发货率」仅作内部执行指标，不构成客户履约口径。
       </div>
 
-      <div class="grid g4" style="margin-bottom:14px">
+      <div class="grid g4">
         <div class="kpi ${cnt.forecastDelay ? 'danger' : 'ok'}"><div class="k-label">预计生产延期</div><div class="k-val">${cnt.forecastDelay}</div><div class="k-sub">按当前计划推算</div></div>
         <div class="kpi ${cnt.actualDelay ? 'danger' : 'ok'}"><div class="k-label">实际生产延期</div><div class="k-val">${cnt.actualDelay}</div><div class="k-sub">已完工且晚于交期</div></div>
         <div class="kpi ${cnt.planShipDelay ? 'warn' : ''}"><div class="k-label">计划发货延期</div><div class="k-val">${cnt.planShipDelay}</div><div class="k-sub">计划发货早于完工</div></div>

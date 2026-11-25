@@ -1,6 +1,6 @@
 {
   "name": "ppd-mvp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "生产计划与交付管理 MVP —— 面向 PMC 的零依赖静态站点：工序级按日排产、齐套判定、执行勾稽与交付风险",

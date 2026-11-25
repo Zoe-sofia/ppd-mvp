@@ -51,12 +51,12 @@ export default {
     const { db } = ctx;
     view.innerHTML = `
       ${tabs(TABS.map((t) => ({ ...t, count: countOf(db, t.key) })), tab)}
-      <div class="card" style="border-top:0;border-radius:0 0 6px 6px">
+      <div class="card attached">
         <div class="toolbar">
           <button class="btn sm primary" data-act="add">新增</button>
           <button class="btn sm" data-act="export">导出当前表</button>
-          <span style="border-left:1px solid var(--line);height:18px"></span>
-          <select id="spec" style="width:190px">
+          <span class="vsep"></span>
+          <select class="filter" id="spec" >
             ${Object.entries(IMPORT_SPECS)
               .map(([k, s]) => `<option value="${k}" ${k === spec ? 'selected' : ''}>导入：${s.label}（${s.kind === 'MASTER' ? '主数据' : '单据'}）</option>`)
               .join('')}
@@ -215,22 +215,22 @@ function renderTab(db, key) {
         k === 'level' ? r.level : k === 'qtyPer' ? r.qtyPer : k === 'product' ? r.__product.code || '' : k === 'parent' ? r.__parent.code || '' : k === 'child' ? r.__child.code || '' : ''
     );
     return `
-      <div class="toolbar" style="border-bottom:1px solid var(--line)">
+      <div class="toolbar divider-bottom">
         <span class="small">筛选：</span>
-        <select id="bom-product" style="width:170px"><option value="">全部产品</option>${db.products
+        <select class="filter" id="bom-product" ><option value="">全部产品</option>${db.products
           .map((p) => `<option value="${p.id}" ${p.id === bomFilter.product ? 'selected' : ''}>${esc(p.code)} · ${esc(p.name)}</option>`)
           .join('')}</select>
-        <select id="bom-level" style="width:170px">
+        <select class="filter" id="bom-level" >
           <option value="">全部层级</option>
           <option value="1" ${bomFilter.level === '1' ? 'selected' : ''}>一级（成品→半成品/物料）</option>
           <option value="2" ${bomFilter.level === '2' ? 'selected' : ''}>二级（半成品→原材料）</option>
         </select>
-        <select id="bom-parent" style="width:190px"><option value="">全部母项</option>${parents
+        <select class="filter" id="bom-parent" ><option value="">全部母项</option>${parents
           .map((p) => `<option value="${p.value}" ${p.value === bomFilter.parent ? 'selected' : ''}>${esc(p.label)}</option>`)
           .join('')}</select>
         <button class="btn sm ghost" data-act="bom-reset">重置</button>
         <span class="spacer"></span>
-        <span class="small muted">共 ${rows.length} / ${db.bomItems.length} 条</span>
+        <span class="small muted count">共 ${rows.length} / ${db.bomItems.length} 条</span>
       </div>
       ${table(
         [
@@ -266,17 +266,17 @@ function renderTab(db, key) {
         k === 'seq' ? r.seq : k === 'hours' ? r.stdHoursPerUnit : k === 'product' ? r.__product.code || '' : k === 'op' ? r.name : ''
     );
     return `
-      <div class="toolbar" style="border-bottom:1px solid var(--line)">
+      <div class="toolbar divider-bottom">
         <span class="small">筛选：</span>
-        <select id="rt-product" style="width:170px"><option value="">全部产品</option>${db.products
+        <select class="filter" id="rt-product" ><option value="">全部产品</option>${db.products
           .map((p) => `<option value="${p.id}" ${p.id === routingFilter.product ? 'selected' : ''}>${esc(p.code)} · ${esc(p.name)}</option>`)
           .join('')}</select>
-        <select id="rt-op" style="width:170px"><option value="">全部工序</option>${opNames
+        <select class="filter" id="rt-op" ><option value="">全部工序</option>${opNames
           .map((n) => `<option value="${esc(n)}" ${n === routingFilter.op ? 'selected' : ''}>${esc(n)}</option>`)
           .join('')}</select>
         <button class="btn sm ghost" data-act="routing-reset">重置</button>
         <span class="spacer"></span>
-        <span class="small muted">共 ${rows.length} / ${db.routingOps.length} 条</span>
+        <span class="small muted count">共 ${rows.length} / ${db.routingOps.length} 条</span>
       </div>
       ${table(
         [
@@ -332,7 +332,7 @@ function renderTab(db, key) {
     const c = db.calendar;
     const names = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '日' };
     return `<div class="card-b">
-      <div class="inline" style="margin-bottom:10px">
+      <div class="inline mb-4">
         <b>工作日历：</b>
         ${[1, 2, 3, 4, 5, 6, 7]
           .map((d) => `<span class="badge ${c.workdays.includes(d) ? 'ok' : 'muted'}">周${names[d]}</span>`)
@@ -341,7 +341,7 @@ function renderTab(db, key) {
       </div>
       <div class="hr"></div>
       <b>法定节假日</b>
-      <div class="small" style="margin:4px 0 8px">点击日期可在「节假日 / 工作日」之间切换</div>
+      <div class="small mt-1 mb-3">点击日期可在「节假日 / 工作日」之间切换</div>
       <div class="pill-list">
         ${['2026-10-01', '2026-10-02', '2026-10-03', '2026-12-25', '2027-01-01']
           .map((d) => {

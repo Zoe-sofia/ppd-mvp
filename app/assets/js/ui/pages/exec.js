@@ -68,7 +68,7 @@ export default {
                 cls: 'num',
                 render: (o) => {
                   const p = orderProgress(db, o, o.versionId);
-                  return p.scrapQty ? `<span style="color:var(--danger)">${p.scrapQty}</span>` : '0';
+                  return p.scrapQty ? `<span class="c-danger">${p.scrapQty}</span>` : '0';
                 },
               },
               {
@@ -116,7 +116,7 @@ export default {
                       cls: 'num',
                       render: (t) =>
                         t.scrapQty
-                          ? `<span style="color:var(--danger)" title="${esc(
+                          ? `<span class="c-danger" title="${esc(
                               Object.entries(t.scrapReasons || {})
                                 .map(([k, v]) => `${(SCRAP_REASONS.find((r) => r.code === k) || {}).name || k}: ${v}`)
                                 .join('，')
@@ -135,7 +135,7 @@ export default {
                 )}
               </div>
               <div class="card-b">
-                <div class="notice info" style="margin:0">
+                <div class="notice info m-0">
                   数量勾稽：订单已开工 = 首道工序累计开工量（${prog ? prog.startedQty : 0}）；订单合格完成 = 末道工序累计合格量（${prog ? prog.goodQty : 0}）。
                   报废、返工与返修流程不在 MVP 范围，不良数量仅隔离，不参与下游流转。
                 </div>
@@ -187,7 +187,7 @@ function renderHistory(db, order) {
           { title: '工作中心', render: (a) => esc((db.workCenters.find((w) => w.id === a.workCenterId) || {}).name || '') },
           { title: '开工量', cls: 'num', render: (a) => (a.qty ? num(a.qty) : '—') },
           { title: '合格', cls: 'num', render: (a) => (a.type === 'COMPLETE' ? num(a.good) : '—') },
-          { title: '不良', cls: 'num', render: (a) => (a.scrap ? `<span style="color:var(--danger)">${a.scrap}</span>` : '—') },
+          { title: '不良', cls: 'num', render: (a) => (a.scrap ? `<span class="c-danger">${a.scrap}</span>` : '—') },
           {
             title: '不良原因',
             render: (a) =>
@@ -214,7 +214,7 @@ function startModal(ctx, taskId) {
   modal({
     title: `开工 · ${task.opName}`,
     body: `
-      <dl class="kv" style="margin-bottom:12px">
+      <dl class="kv mb-5">
         <dt>计划数量</dt><dd>${num(task.planQty)} 件</dd>
         <dt>已开工</dt><dd>${num(task.actualStartQty)} 件</dd>
         <dt>物料可开工上限</dt><dd>${k.maxStartByStock} 件（按当前库存）</dd>

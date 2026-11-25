@@ -21,9 +21,9 @@ export default {
     const frozen = frozenTasks(db, asOf);
 
     view.innerHTML = `
-      <div class="grid g4" style="margin-bottom:14px">
-        <div class="kpi"><div class="k-label">正式计划</div><div class="k-val" style="font-size:18px">${esc(formal ? formal.code : '—')}</div><div class="k-sub">${formal ? `应用日 ${esc(formal.appliedAt || '—')}` : '无生效版本'}</div></div>
-        <div class="kpi"><div class="k-label">当前工作版本</div><div class="k-val" style="font-size:18px">${esc(active ? active.code : '—')}</div><div class="k-sub">${active ? label(VERSION_KIND, active.kind) : ''} · ${activeTasks.length} 条任务</div></div>
+      <div class="grid g4">
+        <div class="kpi"><div class="k-label">正式计划</div><div class="k-val fs-18">${esc(formal ? formal.code : '—')}</div><div class="k-sub">${formal ? `应用日 ${esc(formal.appliedAt || '—')}` : '无生效版本'}</div></div>
+        <div class="kpi"><div class="k-label">当前工作版本</div><div class="k-val fs-18">${esc(active ? active.code : '—')}</div><div class="k-sub">${active ? label(VERSION_KIND, active.kind) : ''} · ${activeTasks.length} 条任务</div></div>
         <div class="kpi ${frozen.length ? 'warn' : 'ok'}"><div class="k-label">冻结窗口内任务</div><div class="k-val">${frozen.length}</div><div class="k-sub">窗口 ${db.settings.freezeDays} 天（0~10 可配）</div></div>
         <div class="kpi"><div class="k-label">历史版本</div><div class="k-val">${versions.filter((v) => v.status === 'ARCHIVED').length}</div><div class="k-sub">已失效版本保留可查</div></div>
       </div>
@@ -71,7 +71,7 @@ export default {
                   </div>
                   <div class="card-b tight">${renderCompare(db, formalTasks, activeTasks, formal.code, active.code)}</div>
                 </div>`
-              : `<div class="card"><div class="card-b"><div class="notice info" style="margin:0">如需比较两种排产结果，请先「复制为模拟方案」，在模拟方案中调整后再对比。模拟期间正式计划保持不变。</div></div></div>`
+              : `<div class="card"><div class="card-b"><div class="notice info m-0">如需比较两种排产结果，请先「复制为模拟方案」，在模拟方案中调整后再对比。模拟期间正式计划保持不变。</div></div></div>`
           }
         </div>
 
@@ -275,17 +275,17 @@ function renderCompare(db, tasksA, tasksB, labelA, labelB) {
   const cmp = comparePlans(db, tasksA, tasksB, labelA, labelB);
   const changed = cmp.delivery.filter((r) => r.aEnd !== r.bEnd || r.aStart !== r.bStart);
   return `
-    <div class="card-b" style="padding-bottom:0">
-      <div class="grid g3" style="margin-bottom:12px">
+    <div class="card-b pb-0">
+      <div class="grid g3">
         ${cmp.capacity
           .map(
             (m) => `<div class="kpi"><div class="k-label">${esc(m.metric)}</div>
-              <div class="k-val" style="font-size:18px">${m.a} → ${m.b}
+              <div class="k-val fs-18">${m.a} → ${m.b}
               <span class="small">${m.b < m.a ? '↓ 更优' : m.b > m.a ? '↑ 变差' : '持平'}</span></div></div>`
           )
           .join('')}
         <div class="kpi"><div class="k-label">延期订单数</div>
-          <div class="k-val" style="font-size:18px">${cmp.material[0].a} → ${cmp.material[0].b}
+          <div class="k-val fs-18">${cmp.material[0].a} → ${cmp.material[0].b}
           <span class="small">${cmp.material[0].b < cmp.material[0].a ? '↓ 更优' : cmp.material[0].b > cmp.material[0].a ? '↑ 变差' : '持平'}</span></div></div>
       </div>
     </div>
@@ -295,7 +295,7 @@ function renderCompare(db, tasksA, tasksB, labelA, labelB) {
         { title: '客户交期', cls: 'mono', render: (r) => esc(r.due) },
         { title: 'A 起止', cls: 'mono', render: (r) => `${esc(r.aStart)} → ${esc(r.aEnd)}` },
         { title: 'B 起止', cls: 'mono', render: (r) => `${esc(r.bStart)} → ${esc(r.bEnd)}` },
-        { title: '完工变化', cls: 'num', render: (r) => (r.shift === 0 ? '—' : r.shift > 0 ? `<span style="color:var(--danger)">+${r.shift} 天</span>` : `<span style="color:var(--ok)">${r.shift} 天</span>`) },
+        { title: '完工变化', cls: 'num', render: (r) => (r.shift === 0 ? '—' : r.shift > 0 ? `<span class="c-danger">+${r.shift} 天</span>` : `<span class="c-ok">${r.shift} 天</span>`) },
         { title: 'A 延期', cls: 'num', render: (r) => (r.aDelay > 0 ? r.aDelay : '—') },
         { title: 'B 延期', cls: 'num', render: (r) => (r.bDelay > 0 ? r.bDelay : '—') },
       ],

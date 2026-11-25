@@ -119,10 +119,12 @@ function shellHtml() {
       <span class="crumb" id="page-crumb"></span>
       <span class="spacer"></span>
       <span class="asof" title="系统基准日：所有日期口径以此为参照">基准日 ${AS_OF}</span>
-      <button class="btn sm" data-act="import" title="导入 Excel / CSV，可多文件，按场景合并">导入</button>
-      <button class="btn sm" data-act="scenario" title="数据管理：切换内置场景、整库 JSON、导入履历、清空数据">场景：${esc(scenarioLabel())}</button>
-      <button class="btn sm" data-act="backup">备份</button>
-      <button class="btn sm" data-act="restore">恢复</button>
+      <div class="topbar-actions">
+        <button class="btn sm" data-act="import" title="导入 Excel / CSV，可多文件，按场景合并">导入</button>
+        <button class="btn sm" data-act="scenario" title="数据管理：切换内置场景、整库 JSON、导入履历、清空数据">场景：${esc(scenarioLabel())}</button>
+        <button class="btn sm" data-act="backup">备份</button>
+        <button class="btn sm" data-act="restore">恢复</button>
+      </div>
     </div>
     ${
       isEmptyDb()

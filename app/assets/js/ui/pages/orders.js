@@ -73,12 +73,12 @@ export default {
         ],
         tab
       )}
-      <div class="card" style="border-top:0;border-radius:0 0 6px 6px">
+      <div class="card attached">
         <div class="toolbar">
-          <input type="text" id="kw" placeholder="搜索订单号 / 客户 / 备注" value="${esc(kw)}" style="width:260px" />
+          <input class="filter-lg" type="text" id="kw" placeholder="搜索订单号 / 客户 / 备注" value="${esc(kw)}"  />
           ${
             tab === 'po'
-              ? `<select id="st" style="width:150px">${options(
+              ? `<select class="filter" id="st" >${options(
                   Object.values(ORDER_STATUS).map((s) => ({ value: s.code, label: s.name })),
                   statusFilter,
                   '全部状态'
@@ -153,7 +153,7 @@ export default {
                       return lines
                         .map(
                           (l) =>
-                            `<div class="rowline" style="padding:3px 0">
+                            `<div class="rowline tight">
                               <span class="mono-s">${esc(l.id)}</span>
                               <span>${esc((db.products.find((p) => p.id === l.productId) || {}).name || '')} × ${num(l.qty)}</span>
                               <span class="r">${esc(l.dueDate)}</span>
@@ -169,7 +169,7 @@ export default {
                       return lines
                         .map((l) => {
                           const pos = ordersOfLine(db, l.id);
-                          return `<div class="rowline" style="padding:3px 0">
+                          return `<div class="rowline tight">
                             <span class="mono-s">${esc(l.id)}</span>
                             <span class="r">${
                               pos.length
@@ -244,7 +244,7 @@ function showDetail(ctx, orderId, util) {
   const tasks = db.tasks.filter((t) => t.orderId === o.id && t.status !== 'CANCELLED').sort((a, b) => a.seq - b.seq);
 
   const body = `
-    <dl class="kv" style="margin-bottom:14px">
+    <dl class="kv mb-5">
       <dt>生产订单</dt><dd><b>${esc(o.code)}</b> ${badge(label(ORDER_STATUS, o.status), 'info')}</dd>
       <dt>产品 / 数量</dt><dd>${esc((db.products.find((x) => x.id === o.productId) || {}).name || '')} × ${num(o.qty)}</dd>
       <dt>客户交期</dt><dd>${esc(dueDateOf(db, o) || '—')}（客户要求生产完工日）</dd>
@@ -254,7 +254,7 @@ function showDetail(ctx, orderId, util) {
       <dt>数量进度</dt><dd>已开工 ${p.startedQty} · 合格完成 ${p.goodQty} · 待生产 ${p.toProduce} · 剩余 ${p.remaining}</dd>
     </dl>
 
-    <h4 style="margin:14px 0 6px;font-size:12.5px">关联销售行（一拆多 / 多对一）</h4>
+    <h4 class="sec-title spaced">关联销售行（一拆多 / 多对一）</h4>
     ${
       links.length
         ? table(
@@ -276,8 +276,8 @@ function showDetail(ctx, orderId, util) {
         : '<div class="small">无关联记录</div>'
     }
 
-    <h4 style="margin:14px 0 6px;font-size:12.5px">优先级评分（当前策略：交付优先）</h4>
-    <div class="notice info" style="margin-bottom:8px">
+    <h4 class="sec-title spaced">优先级评分（当前策略：交付优先）</h4>
+    <div class="notice info mb-3">
       综合得分 <b>${sc.total}</b>　交期桶 ${sc.buckets.DELIVERY} × ${sc.weights.DELIVERY}%
       　物料桶 ${sc.buckets.MATERIAL} × ${sc.weights.MATERIAL}%
       　产能桶 ${sc.buckets.CAPACITY} × ${sc.weights.CAPACITY}%
@@ -291,7 +291,7 @@ function showDetail(ctx, orderId, util) {
       sc.factors
     )}
 
-    <h4 style="margin:14px 0 6px;font-size:12.5px">工序任务</h4>
+    <h4 class="sec-title spaced">工序任务</h4>
     ${
       tasks.length
         ? table(

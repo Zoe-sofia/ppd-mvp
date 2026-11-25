@@ -81,12 +81,12 @@ export function openBatchImport(ctx, opts = {}) {
       <input type="file" id="bi-files" accept=".xlsx,.xls,.csv,.txt" multiple />
     </div>
     <div id="bi-list"><div class="empty">还没有选择文件</div></div>
-    <div class="inline" style="margin-top:10px">
-      <label class="small" style="display:flex;align-items:center;gap:6px">
+    <div class="inline mt-4">
+      <label class="small inline">
         <input type="checkbox" id="bi-backup" checked /> 导入前自动导出当前数据备份
       </label>
       <span class="spacer"></span>
-      <select id="bi-tpl" style="width:190px">
+      <select class="filter" id="bi-tpl" >
         ${SPEC_ORDER.map((k) => `<option value="${k}">${esc(IMPORT_SPECS[k].label)}</option>`).join('')}
       </select>
       <button class="btn sm" data-tpl>下载模板</button>
@@ -118,13 +118,13 @@ export function openBatchImport(ctx, opts = {}) {
 
       /** 解析结果预览：用户能直接看到"我到底读到了什么"，不用靠猜 */
       const peekHtml = (e) => {
-        const head = `<div class="small muted" style="margin:4px 0 6px">下面是解析后读到的前 3 行（已去掉纯空行）。若与 Excel 里看到的不一致，说明该文件的存储方式特殊，请另存为 CSV 后重试。</div>`;
+        const head = `<div class="small muted mt-1 mb-2">下面是解析后读到的前 3 行（已去掉纯空行）。若与 Excel 里看到的不一致，说明该文件的存储方式特殊，请另存为 CSV 后重试。</div>`;
         const table = (e.sample || []).length
-          ? `<div class="table-wrap"><table class="tb" style="font-size:12px"><tbody>${e.sample
+          ? `<div class="table-wrap"><table class="tb fs-12"><tbody>${e.sample
               .map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`)
               .join('')}</tbody></table></div>`
           : '<div class="small muted">没有读到任何单元格内容</div>';
-        return `<div style="padding:2px 0 8px">${head}${table}</div>`;
+        return `<div class="pb-3">${head}${table}</div>`;
       };
 
       const renderList = () => {
@@ -144,21 +144,21 @@ export function openBatchImport(ctx, opts = {}) {
                 ? `<div class="small muted">候选：${e.detected.candidates.map((c) => esc(c.label)).join(' / ')}</div>`
                 : '';
             const notes = !e.error && (e.notes || []).length
-              ? `<div class="small" style="color:var(--danger)">${e.notes.map((n) => esc(n)).join('<br>')}</div>`
+              ? `<div class="small c-danger">${e.notes.map((n) => esc(n)).join('<br>')}</div>`
               : '';
             const peek = peeked.has(i) ? peekHtml(e) : '';
             return `<tr>
               <td>${esc(e.name)}<div class="small muted">${info}</div></td>
               <td>${e.error ? '—' : `<span class="mono">${esc(e.format.toUpperCase())}</span> · ${esc(e.sheetName || '')}`}</td>
-              <td><select data-spec="${i}" style="width:170px">${specOptions(e.specKey)}</select></td>
+              <td><select class="filter" data-spec="${i}" >${specOptions(e.specKey)}</select></td>
               <td class="num">${e.error ? '—' : e.rows}</td>
               <td><span class="badge ${st.tone}">${st.text}</span>
-              ${e.error ? `<div class="small" style="color:var(--danger)">${esc(e.error)}</div>` : ''}
+              ${e.error ? `<div class="small c-danger">${esc(e.error)}</div>` : ''}
               ${cand}${notes}
-              ${e.error ? '' : `<div><button class="btn sm ghost" data-peek="${i}" style="margin-top:4px">${peeked.has(i) ? '收起' : '前 3 行'}</button></div>`}
+              ${e.error ? '' : `<div><button class="btn sm ghost mt-1" data-peek="${i}">${peeked.has(i) ? '收起' : '前 3 行'}</button></div>`}
               </td>
             </tr>
-            <tr data-peek-row="${i}" ${peeked.has(i) ? '' : 'hidden'}><td colspan="5" style="border-top:0">${peek}</td></tr>`;
+            <tr data-peek-row="${i}" ${peeked.has(i) ? '' : 'hidden'}><td colspan="5" class="border-top-0">${peek}</td></tr>`;
           })
           .join('');
         listEl.innerHTML = `<div class="table-wrap"><table class="tb"><thead><tr>
@@ -321,13 +321,13 @@ function batchReportHtml(res) {
   const rows = res.results
     .map((r) => {
       const errs = r.errors.length
-        ? `<div class="small" style="color:var(--danger);margin-top:4px">${r.errors
+        ? `<div class="small c-danger mt-1">${r.errors
             .slice(0, 4)
             .map((e) => `第 ${e.line || '—'} 行 · ${esc(e.field)}：${esc(e.message)}`)
             .join('<br>')}${r.errors.length > 4 ? `<br>…另有 ${r.errors.length - 4} 条` : ''}</div>`
         : '';
       const warns = r.warnings.length
-        ? `<div class="small muted" style="margin-top:4px">${r.warnings.slice(0, 3).map((w) => esc(w)).join('<br>')}</div>`
+        ? `<div class="small muted mt-1">${r.warnings.slice(0, 3).map((w) => esc(w)).join('<br>')}</div>`
         : '';
       return `<tr>
         <td>${esc(r.file)}<div class="small muted">${esc(r.specLabel || '—')}${r.sheetName ? ` · ${esc(r.sheetName)}` : ''}</div></td>
@@ -337,7 +337,7 @@ function batchReportHtml(res) {
         <td class="num">${r.skipped}</td>
         <td class="num">${r.autoLines || 0}</td>
       </tr>
-      <tr><td colspan="6" style="border-top:0;padding-top:0">${errs}${warns}</td></tr>`;
+      <tr><td colspan="6" class="border-top-0 pt-0">${errs}${warns}</td></tr>`;
     })
     .join('');
 
@@ -348,10 +348,10 @@ function batchReportHtml(res) {
     : `<div class="notice danger"><b>没有任何文件写入</b>：请按下面每份文件的错误修正后重试（已有数据未被改动）。</div>`;
 
   return `${summary}
-    <div class="table-wrap" style="margin-top:10px"><table class="tb"><thead><tr>
+    <div class="table-wrap mt-4"><table class="tb"><thead><tr>
       <th>文件 / 场景</th><th>结果</th><th class="num">新增</th><th class="num">更新</th><th class="num">跳过</th><th class="num">补建销售行</th>
     </tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="small muted" style="margin-top:8px">导入的生产订单为「待排产」，需要到生产排程页执行自动排产；主数据更新不会改变已有订单的关联。</div>`;
+    <div class="small muted mt-3">导入的生产订单为「待排产」，需要到生产排程页执行自动排产；主数据更新不会改变已有订单的关联。</div>`;
 }
 
 /* ═══════════════ 数据管理（场景 / 整库 JSON / 清空） ═══════════════ */
@@ -380,20 +380,20 @@ export function openDataManager(ctx) {
     <div class="notice info">
       当前数据来源：<b>${esc(sourceLabel(db))}</b>。导入 Excel/CSV 是<b>合并</b>；载入场景与载入整库 JSON 会<b>替换全部数据</b>。
     </div>
-    <div class="grid g2" style="gap:14px">
+    <div class="grid g2">
       <div>
-        <h4 style="margin:2px 0 8px">数据概况</h4>
+        <h4 class="sec-title">数据概况</h4>
         <table class="tb"><tbody>${counts}</tbody></table>
       </div>
       <div>
-        <h4 style="margin:2px 0 8px">常用操作</h4>
+        <h4 class="sec-title">常用操作</h4>
         <div class="flexcol">
           <button class="btn primary" data-import>导入 Excel / CSV（可多文件）</button>
           <button class="btn" data-backup>导出当前数据备份（JSON）</button>
           <div class="small muted">备份文件可用「恢复」或下方「载入整库 JSON」还原。</div>
         </div>
-        <h4 style="margin:16px 0 8px">内置演示场景</h4>
-        <div class="small muted" style="margin-bottom:6px">载入会重建整套演示数据，当前数据被替换；导入前建议先备份。</div>
+        <h4 class="sec-title spaced">内置演示场景</h4>
+        <div class="small muted mb-2">载入会重建整套演示数据，当前数据被替换；导入前建议先备份。</div>
         ${Object.values(SCENARIOS)
           .map(
             (s) => `<div class="rowline">
@@ -405,29 +405,29 @@ export function openDataManager(ctx) {
       </div>
     </div>
     <div class="hr"></div>
-    <h4 style="margin:0 0 6px">载入整库 JSON（替换全部数据）</h4>
-    <div class="small muted" style="margin-bottom:8px">
+    <h4 class="sec-title">载入整库 JSON（替换全部数据）</h4>
+    <div class="small muted mb-3">
       用于导入测试数据集或还原备份。文件需包含 <b>productionOrders</b>（可为空数组），可包在
       <code>data</code> / <code>dataset</code> / <code>db</code> 里；缺计划版本会自动建工作版本并重连工序任务。
     </div>
     <div class="field"><input type="file" id="dm-file" accept=".json,application/json" /></div>
     <div id="dm-out"></div>
-    <div class="inline" style="margin-top:8px">
+    <div class="inline mt-3">
       <button class="btn sm" data-tpl>下载示例数据集</button>
     </div>
     <div class="hr"></div>
-    <h4 style="margin:0 0 6px">导入履历（最近 8 批）</h4>
+    <h4 class="sec-title">导入履历（最近 8 批）</h4>
     ${
       logs
         ? `<div class="table-wrap"><table class="tb"><thead><tr><th>批次</th><th>时间</th><th>文件</th><th class="num">新增</th><th class="num">更新</th><th class="num">跳过</th></tr></thead><tbody>${logs}</tbody></table></div>`
         : '<div class="empty">还没有导入记录</div>'
     }
     <div class="hr"></div>
-    <h4 style="margin:0 0 6px;color:var(--danger)">危险操作：清空全部数据</h4>
-    <div class="notice danger" style="margin-top:6px">
+    <h4 class="sec-title danger">危险操作：清空全部数据</h4>
+    <div class="notice danger mt-2">
       清空后本地库为空（不会自动重建演示数据），<b>不可撤销</b>。清空前会自动导出一份 JSON 备份。
     </div>
-    <div class="inline" style="margin-top:8px">
+    <div class="inline mt-3">
       <button class="btn danger" data-clear>清空全部数据…</button>
     </div>`;
 
@@ -515,11 +515,11 @@ function clearAllDialog(ctx, parent) {
         将删除浏览器本地库中的<b>全部业务数据</b>（订单、任务、库存、报工履历、异常、导入记录），
         且不会自动重建演示数据。<b>此操作不可撤销。</b>
       </div>
-      <table class="tb" style="margin-top:10px"><tbody>${counts}</tbody></table>
-      <label class="small" style="display:flex;align-items:center;gap:6px;margin-top:12px">
+      <table class="tb mt-4"><tbody>${counts}</tbody></table>
+      <label class="small inline mt-5">
         <input type="checkbox" id="cl-backup" checked /> 清空前导出 JSON 备份（可事后用「恢复」还原）
       </label>
-      <div class="field" style="margin-top:10px">
+      <div class="field mt-4">
         <label>请输入「清空」以确认</label>
         <input id="cl-word" placeholder="清空" autocomplete="off" data-autofocus />
       </div>
@@ -576,7 +576,7 @@ export function datasetReportHtml(rep) {
     <table class="tb"><thead><tr><th>集合</th><th>条数</th></tr></thead><tbody>${rows}</tbody></table>
     ${
       rep.warnings.length
-        ? `<div class="notice warn" style="margin-top:10px"><b>提示：</b><br>${rep.warnings.map((w) => `· ${esc(w)}`).join('<br>')}</div>`
+        ? `<div class="notice warn mt-4"><b>提示：</b><br>${rep.warnings.map((w) => `· ${esc(w)}`).join('<br>')}</div>`
         : ''
     }`;
 }

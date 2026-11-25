@@ -242,7 +242,7 @@ export function confirmDialog(title, message, okText = '确定') {
   return new Promise((resolve) => {
     const m = modal({
       title,
-      body: `<p style="margin:0;font-size:13px;line-height:1.7">${message}</p>`,
+      body: `<p class="m-0 fs-13 lh-17">${message}</p>`,
       footer: `<button class="btn" data-cancel>取消</button><button class="btn primary" data-ok>${esc(okText)}</button>`,
     });
     m.root.querySelector('[data-cancel]').addEventListener('click', () => {

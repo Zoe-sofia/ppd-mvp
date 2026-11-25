@@ -24,15 +24,15 @@ export default {
         </div>
         <div class="toolbar">
           <label class="small">统计期</label>
-          <input type="date" id="from" value="${esc(filter.from)}" style="width:150px" />
+          <input class="filter" type="date" id="from" value="${esc(filter.from)}"  />
           <span class="small">至</span>
-          <input type="date" id="to" value="${esc(filter.to)}" style="width:150px" />
-          <select id="prod" style="width:170px">${options(
+          <input class="filter" type="date" id="to" value="${esc(filter.to)}"  />
+          <select class="filter" id="prod" >${options(
             db.products.map((p) => ({ value: p.id, label: p.name })),
             filter.productId,
             '全部产品'
           )}</select>
-          <select id="wc" style="width:170px">${options(
+          <select class="filter" id="wc" >${options(
             db.workCenters.map((p) => ({ value: p.id, label: p.name })),
             filter.workCenterId,
             '全部工作中心'
@@ -49,13 +49,13 @@ export default {
         <div class="card">
           <div class="card-h"><h3>${g}指标</h3></div>
           <div class="card-b">
-            <div class="grid g4" style="margin-bottom:12px">
+            <div class="grid g4">
               ${metrics
                 .filter((m) => m.group === g)
                 .map(
                   (m) => `<div class="kpi" data-metric="${m.key}">
                     <div class="k-label">${esc(m.name)}</div>
-                    <div class="k-val" style="font-size:22px">${esc(m.display)}<span class="small" style="font-weight:400"> ${esc(m.unit)}</span></div>
+                    <div class="k-val fs-22">${esc(m.display)}<span class="small fw-4"> ${esc(m.unit)}</span></div>
                     <div class="k-sub">${esc(m.formula)}</div>
                   </div>`
                 )
@@ -69,7 +69,7 @@ export default {
                   title: '可视化',
                   render: (m) => {
                     if (m.unit !== '%') return '<span class="muted small">—</span>';
-                    return `<div style="min-width:100px">${bar(m.value / 100, m.value >= 90 ? '' : m.value >= 70 ? 'warn' : 'danger')}</div>`;
+                    return `<div class="bar-w-lg">${bar(m.value / 100, m.value >= 90 ? '' : m.value >= 70 ? 'warn' : 'danger')}</div>`;
                   },
                 },
                 { title: '计算口径', render: (m) => `<span class="small">${esc(m.basis)}</span>` },

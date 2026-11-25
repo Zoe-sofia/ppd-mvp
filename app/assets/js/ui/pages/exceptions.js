@@ -29,7 +29,7 @@ export default {
         <b>${esc(AI_STATUS.label)}</b>：${esc(AI_STATUS.notice)}
       </div>
 
-      <div class="grid g4" style="margin-bottom:14px">
+      <div class="grid g4">
         <div class="kpi ${cnt('OPEN') ? 'danger' : 'ok'}"><div class="k-label">待处理</div><div class="k-val">${cnt('OPEN')}</div></div>
         <div class="kpi"><div class="k-label">处理中</div><div class="k-val">${cnt('PROCESSING')}</div></div>
         <div class="kpi ok"><div class="k-label">已解决</div><div class="k-val">${cnt('RESOLVED')}</div></div>
@@ -43,17 +43,17 @@ export default {
           <div class="right"><button class="btn sm primary" data-act="scan">重新扫描</button></div>
         </div>
         <div class="toolbar">
-          <select id="ft" style="width:130px">${options(
+          <select class="filter" id="ft" >${options(
             Object.values(EXCEPTION_TYPE).map((t) => ({ value: t.code, label: t.name })),
             filter.type,
             '全部类型'
           )}</select>
-          <select id="fl" style="width:120px">${options(
+          <select class="filter" id="fl" >${options(
             Object.values(EXCEPTION_LEVEL).map((t) => ({ value: t.code, label: t.name })),
             filter.level,
             '全部等级'
           )}</select>
-          <select id="fs" style="width:130px">${options(
+          <select class="filter" id="fs" >${options(
             Object.values(EXCEPTION_STATUS).map((t) => ({ value: t.code, label: t.name })),
             filter.status,
             '全部状态'
@@ -112,7 +112,7 @@ function detailModal(ctx, excId) {
   const order = db.productionOrders.find((o) => o.id === exc.orderId);
 
   const body = `
-    <dl class="kv" style="margin-bottom:12px">
+    <dl class="kv mb-5">
       <dt>异常编号</dt><dd>${esc(exc.id)}　${badge(label(EXCEPTION_LEVEL, exc.level), toneOf(EXCEPTION_LEVEL, exc.level))}</dd>
       <dt>类型 / 现象</dt><dd>${esc(label(EXCEPTION_TYPE, exc.type))} · <b>${esc(exc.name)}</b></dd>
       <dt>关联订单</dt><dd>${order ? esc(order.code) : '—'}</dd>
@@ -121,32 +121,32 @@ function detailModal(ctx, excId) {
       ${exc.detail && exc.detail.length ? `<dt>明细</dt><dd class="small">${exc.detail.map((d) => esc(d)).join('；')}</dd>` : ''}
     </dl>
 
-    <div class="notice info" style="margin-bottom:10px">以下为<b>${esc(analysis.aiLabel)}</b>，由系统基于业务数据生成，不替代人工决策，也不会修改任何计划数据。</div>
+    <div class="notice info mb-4">以下为<b>${esc(analysis.aiLabel)}</b>，由系统基于业务数据生成，不替代人工决策，也不会修改任何计划数据。</div>
 
-    <h4 style="margin:10px 0 6px;font-size:12.5px">已知事实（引用系统数据）</h4>
-    <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.8">
+    <h4 class="sec-title spaced">已知事实（引用系统数据）</h4>
+    <ul class="num-list">
       ${analysis.facts.map((f) => `<li>${esc(f)}</li>`).join('')}
     </ul>
 
     ${
       analysis.inferences.length
-        ? `<h4 style="margin:12px 0 6px;font-size:12.5px">推测（需人工确认）</h4>
-           <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.8;color:var(--warn)">
+        ? `<h4 class="sec-title spaced">推测（需人工确认）</h4>
+           <ul class="num-list c-warn">
              ${analysis.inferences.map((f) => `<li>${esc(f)}</li>`).join('')}
            </ul>`
         : ''
     }
 
-    <h4 style="margin:12px 0 6px;font-size:12.5px">处理建议</h4>
+    <h4 class="sec-title spaced">处理建议</h4>
     ${
       analysis.suggestions.length
         ? analysis.suggestions
             .map(
               (s, i) => `<div class="rowline">
-                <div style="flex:1">
+                <div class="grow">
                   <b>${i + 1}. ${esc(s.title)}</b>
                   <div class="small">${esc(s.detail)}</div>
-                  <div class="small" style="color:var(--info)">预期效果：${esc(s.expected)}</div>
+                  <div class="small c-info">预期效果：${esc(s.expected)}</div>
                 </div>
                 <div class="r"><button class="btn sm" data-adopt="${i}">采纳并记录</button></div>
               </div>`
@@ -155,7 +155,7 @@ function detailModal(ctx, excId) {
         : '<div class="small">该异常暂无规则化建议</div>'
     }
 
-    <h4 style="margin:14px 0 6px;font-size:12.5px">处理记录</h4>
+    <h4 class="sec-title spaced">处理记录</h4>
     ${
       (exc.records || []).length
         ? (exc.records || [])
@@ -166,7 +166,7 @@ function detailModal(ctx, excId) {
         : '<div class="small">尚无处理记录</div>'
     }
 
-    <div class="field" style="margin-top:12px"><label>处理说明</label><textarea id="note" rows="2" placeholder="记录处置动作与结果"></textarea></div>
+    <div class="field mt-5"><label>处理说明</label><textarea id="note" rows="2" placeholder="记录处置动作与结果"></textarea></div>
     <div class="field"><label>责任人</label><input type="text" id="owner" value="${esc(exc.owner || '')}" placeholder="自由文本，不建用户关联" /></div>`;
 
   const footer = `

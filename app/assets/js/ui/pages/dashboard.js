@@ -43,7 +43,7 @@ export default {
       .slice(0, 8);
 
     view.innerHTML = `
-      <div class="grid g6" style="margin-bottom:14px">
+      <div class="grid g6">
         ${kpi('在制订单', s.totalOrders, '未完工且未关闭', '', '#/orders')}
         ${kpi('待排产', s.toSchedule, '状态为「待排产」', s.toSchedule ? 'warn' : '', '#/schedule')}
         ${kpi('生产中', s.inProduction, '已开工未完工', '', '#/exec')}
@@ -102,7 +102,7 @@ export default {
                   { title: '已排数量', cls: 'num', render: (r) => num(r.load) },
                   {
                     title: '负荷率',
-                    render: (r) => `<div class="inline"><div class="grow" style="min-width:90px">${bar(r.util, r.util > 1 ? 'danger' : r.util > 0.85 ? 'warn' : '')}</div><span class="mono-s">${(r.util * 100).toFixed(0)}%</span></div>`,
+                    render: (r) => `<div class="inline"><div class="grow bar-w">${bar(r.util, r.util > 1 ? 'danger' : r.util > 0.85 ? 'warn' : '')}</div><span class="mono-s">${(r.util * 100).toFixed(0)}%</span></div>`,
                   },
                   {
                     title: '判断',
@@ -129,7 +129,7 @@ export default {
                         (e) => `<div class="rowline">
                           <div>
                             ${badge(label(EXCEPTION_LEVEL, e.level), toneOf(EXCEPTION_LEVEL, e.level))}
-                            <b style="margin-left:4px">${esc(e.name)}</b>
+                            <b class="ml-1">${esc(e.name)}</b>
                             <div class="small">${esc(e.reason || '').slice(0, 78)}</div>
                           </div>
                         </div>`
@@ -137,7 +137,7 @@ export default {
                       .join('')
                   : '<div class="empty">暂无待处理异常</div>'
               }
-              <div style="margin-top:10px"><button class="btn sm w-100" data-act="goto-exc">进入异常中心</button></div>
+              <div class="mt-4"><button class="btn sm w-100" data-act="goto-exc">进入异常中心</button></div>
             </div>
           </div>
 
