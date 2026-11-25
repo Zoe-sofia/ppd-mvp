@@ -807,7 +807,7 @@ function naturalKeyOfMaster(specKey, row, db) {
 export function applyImport(specKey, entities, db, options = {}) {
   const spec = IMPORT_SPECS[specKey];
   const coll = collectionOf(specKey);
-  const out = { created: 0, updated: 0, skipped: 0, rejected: [], autoLines: 0, createdIds: [] };
+  const out = { created: 0, updated: 0, skipped: 0, rejected: [], autoLines: 0, linked: 0, createdIds: [] };
   const stamp = options.batch ? { batch: options.batch, file: options.file || '', at: options.at || '' } : null;
   const mark = (entity) => {
     if (stamp) entity.imp = { ...stamp };
@@ -907,6 +907,25 @@ export function applyImport(specKey, entities, db, options = {}) {
     db[coll].push(entity);
     out.created += 1;
     out.createdIds.push(entity.id);
+
+    /**
+     * 生产订单与销售行有两处关联：订单上的 salesOrderLineId（交期回查用）与
+     * orderLinks 关联表（销售订单页展示"该行已建立哪些生产订单"用）。
+     * 旧版本导入只写了前者，导致销售订单页明明有生产订单却仍显示「建立生产订单」按钮。
+     */
+    if (specKey === 'productionOrders' && entity.salesOrderLineId) {
+      db.orderLinks = db.orderLinks || [];
+      let link = db.orderLinks.find((l) => l.orderId === entity.id);
+      if (!link) {
+        link = { id: uid('LK'), orderId: entity.id, lineId: entity.salesOrderLineId, qty: Number(entity.qty) || 0 };
+        mark(link);
+        db.orderLinks.push(link);
+      } else {
+        link.lineId = entity.salesOrderLineId;
+        link.qty = Number(entity.qty) || 0;
+      }
+      out.linked += 1;
+    }
   }
   return out;
 }

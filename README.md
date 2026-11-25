@@ -51,6 +51,31 @@ CI 的部署步骤还会校验必需文件、并**拦截 `src="/..."` 这类根�
 > 唯一的例外是 `index.html` 的 `og:image` / `canonical` 与 `404.html` 里的在线地址，只影响分享卡片，
 > 不影响功能，按需替换。
 
+#### 在线演示的数据是"每人一份"，不是共享的
+
+这一点容易被误解，所以单独说明：**多人打开同一个在线地址，彼此看不到对方的数据；换设备、换浏览器也看不到。**
+
+| 场景 | 数据在哪 | 别人能看到吗 |
+|---|---|---|
+| A 在自己电脑的 Chrome 打开在线地址并导入 Excel | A 这台电脑这个浏览器的 `localStorage` | 看不到 |
+| B 在另一台电脑打开同一个网址 | B 自己浏览器的 `localStorage`，初始为空 → 自动生成演示数据 | 看不到 A 的 |
+| A 换用 Edge，或换一台机器 | 又一次全新的 `localStorage` | 看不到 |
+| A 用无痕窗口 | 独立的临时 `localStorage`，关闭即丢弃 | 看不到，也不留痕 |
+
+原因是这类站点没有后端：GitHub Pages 只托管静态文件（HTML/CSS/JS），**没有数据库、没有接口、也没有账号体系**，
+浏览器出于同源策略也不允许一个站点读写另一个站点的 `localStorage`。所以「在线演示」等于一份**本机沙盒**：
+随便导入、随便改、随便清空，都不会影响任何人，也不会污染仓库。
+
+需要多人共用同一份数据时，只有两条路（都超出当前 MVP 的范围，见 §9）：
+
+1. **手动传递整库文件**——一方「备份」导出 JSON，另一方「恢复」导入；或把 JSON 放进仓库再由对方下载导入。
+   适合交接、复现问题、递交测评样本。
+2. **接一个后端**——把 `core/store.js` 的读写换成接口调用（其余 `core/` 层无需改动，见 §5 分层）。
+   届时才需要账号、权限与并发控制。
+
+> 仓库里不存在任何"测试导入数据"。`app/tests/fixtures/` 下的是**自动化测试用的样本文件**（xlsx / xls / GBK-CSV），
+> 部署时不会被当成数据加载，也不会写进任何用户的浏览器。
+
 ### 2.2 本地运行
 
 ```bash
@@ -81,14 +106,14 @@ npx serve . -l 8099             # 或 npm run serve:node
 | # | 页面 | 关键能力 |
 |---|---|---|
 | 01 | PMC 工作台 | 在制/待排产/生产中/缺料/产能冲突/交付风险六类计数，今日任务、中心负荷、待处理异常、关键指标 |
-| 02 | 订单管理 | 销售订单 → 生产订单（一拆多、多对一），交期与优先级维护 |
-| 03 | 物料管理 | 齐套分析五态、物料预留、到货信息、单订单物料明细展开 |
-| 04 | 生产排程 | 三套权重策略自动排产、甘特视图、硬约束拦截、逐工序调整、计划确认 |
+| 02 | 订单管理 | 销售订单 → 生产订单（一拆多、多对一）双源关联，交期与优先级维护，生产订单全列筛选与排序 |
+| 03 | 物料管理 | 齐套分析五态 + 选中订单明细置顶、物料预留（确认即扣减可分配库存，可取消）、库存/到货、订单 BOM 需求树 |
+| 04 | 生产排程 | 三套权重策略自动排产、甘特视图、硬约束拦截、六维筛选与排序、**当日计划查询**、约束规则说明表、逐工序调整、计划确认 |
 | 05 | 计划版本 | 版本快照与对比、冻结期判定与解冻留痕 |
 | 06 | 执行跟踪 | 开工/完工申报过三闸门、报工履历、停工记录、Excel 报工导入 |
 | 07 | 交付管理 | 日期链、五类延期识别、发货登记（内部节点） |
-| 08 | 异常中心 | 自动识别、去重、状态流转、规则摘要（AI 未接入的降级态） |
-| 09 | 基础数据 | 工作中心、工作日历、BOM、库存、工艺路线维护；Excel/CSV 多文件导入与数据管理入口 |
+| 08 | 异常中心 | 自动识别、去重、状态流转、**每条异常必带可下钻明细**、规则摘要（AI 未接入的降级态） |
+| 09 | 基础数据 | 工作中心、工作日历、BOM（按产品/层级/母项筛选）、库存、工艺路线（按产品/工序筛选）维护；Excel/CSV 多文件导入与数据管理入口 |
 | 10 | 统计分析 | 12 项指标按交付/生产/物料分组，指标口径可查、明细可下钻 |
 
 <p align="center">
@@ -135,7 +160,8 @@ npx serve . -l 8099             # 或 npm run serve:node
 │  ├─ tests/verify.mjs         # 31 项算法校验（数量守恒 / 可复现 / 约束拦截）
 │  ├─ tests/io.test.mjs        # 50 项导入导出校验（CSV 解析 / 逐行校验 / 覆盖语义 / 日期容错）
 │  ├─ tests/dataset.test.mjs   # 42 项整库 JSON 校验（信封 / 字段定位 / 版本重连）
-│  ├─ tests/import-files.test.mjs # 52 项 Excel/CSV 批量导入校验（三格式 / 多批次 / 互不覆盖）
+│  ├─ tests/import-files.test.mjs # 63 项 Excel/CSV 批量导入校验（三格式 / 多批次 / 互不覆盖）
+│  ├─ tests/rules.test.mjs    # 34 项业务规则回归（齐套累计口径 / 半成品展开 / orderLinks / 异常明细）
 │  ├─ tests/fixtures/          # 测试样本（xlsx / xls / GBK-CSV）与生成脚本
 │  ├─ tests/check-syntax.mjs   # 语法门禁
 │  └─ package.json             # 无依赖；仅用于 ESM 与脚本入口
@@ -147,19 +173,32 @@ npx serve . -l 8099             # 或 npm run serve:node
 
 ## 5. 几个关键实现决策
 
-- **硬约束先行**：HC-01 工序顺序、HC-02 工作中心能力、HC-03 不可生产日期、HC-04 日产能超限、HC-05 下游数量超上游。存在硬约束时"确认计划"按钮被禁用；软约束只提示不拦截。
+- **硬约束先行**：HC-01 工序顺序、HC-02 工作中心能力、HC-03 不可生产日期、HC-04 日产能超限、HC-05 下游数量超上游。存在硬约束时"确认计划"按钮被禁用；软约束只提示不拦截。每条约束都写明**判定口径 / 命中影响 / 怎么改**，并统计当前命中数（排程页可展开查看）。
 - **产能按物理量占用**：同一工作中心常承接标准工时不同的多道工序，若一律按"件"占用，会排出"账面不超产能、实际超工时"的计划。排产与 HC-04 校验共用 `capacityPoolOf` / `capacityDemandOf`，两处结论始终一致。
 - **约束判定与任务顺序无关**：HC-04 按 (工作中心, 日期) 汇总后只报一条，结果不受任务数组顺序影响（有对应测试）。
 - **可复现**：排产不含随机数与当前时间，同一输入两次排产结果逐字节一致；演示数据用固定种子生成。
 - **不承诺全局最优**：九因素归入交付/物料/产能三桶加权后按优先级贪心排，界面已明示这一点。
 - **分母为 0 显示 `—` 而不是 `0.0%`**：`0.0%` 会被读成"实际为 0"，真相是"没有样本"。
+- **到货"合计够"不等于"哪天够"**：齐套判定按日期逐日累计已确认到货（库存 + 预计到货日 ≤ d 的到货），
+  取**首次达需日**，再对整单所有缺料物料取**最晚**那个作为整单齐套日 —— 而不是看确认到货合计，
+  也不是看首批到货日。前者会把"两批各 40、需求 70"误判为已齐套，后者会漏掉"首批够、第二批不够"。
+  任一缺料物料永远不够时整单齐套日返回空（不可知），不编造日期。
+- **半成品有两种口径，必须分清**：`explodeBom()` 用于**算需求**——半成品若有下级 BOM 就只展开下级材料，
+  半成品自身不计需求（自制件不该被"采购"）；但半成品**仍作为库存标的出现在库存/到货页**，
+  且在"订单 BOM 物料需求明细"里以树形保留半成品行 + 下级材料缩进，让人看清"这批料是为哪个半成品备的"。
+  两个函数（`explodeBom` / `explodeBomTree`）需求数量口径一致，只是一个平铺、一个带层级。
+- **一拆多要能双向查**：销售行 → 生产订单既有 `productionOrders.salesOrderLineId`（用于回查交期），
+  也有 `orderLinks` 关联表（一张销售行可挂多张生产订单，且能带分配数量）。导入生产订单时两者同时写入，
+  否则销售订单页的"生产订单"列只能显示"建立生产订单"——明明已经建了。
+- **排序不污染数据层**：表格排序是"看"的行为，`table()` 只负责渲染（输出可点的表头 + 箭头状态），
+  排序由 `sortRows()` 在页面层完成；筛选同理，排程页的筛选只影响展示，约束校验始终跑全量任务。
 
 ## 6. 测试
 
 ```bash
 cd app
-npm test          # 31 算法 + 50 导入导出 + 42 整库 JSON + 63 Excel/CSV 批量导入 = 186 项，全部通过
-npm run check     # 33 个 ES Module 的语法门禁
+npm test          # 31 算法 + 50 导入导出 + 42 整库 JSON + 63 Excel/CSV 批量导入 + 34 业务规则 = 220 项，全部通过
+npm run check     # 34 个 ES Module 的语法门禁
 ```
 
 **算法侧**（`tests/verify.mjs`，31 项）：三套场景数据完整性、数量守恒（逐单逐工序）、排产可复现（三次一致）、
@@ -182,13 +221,41 @@ npm run check     # 33 个 ES Module 的语法门禁
 另有存储变体兼容用例（命名空间前缀、单引号属性、无 `sharedStrings`、富文本 `runs`、缺 `r` 属性、
 绝对路径 target、write-only 产物、合并单元格、表头带单位括号、表头靠后、信息量不足不硬猜、空表）。
 
-CI 在每次 push / PR 上跑上述四项（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
+CI 在每次 push / PR 上跑上述五个测试文件（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）。
+
+**业务规则回归侧**（`tests/rules.test.mjs`，34 项）：这组用例专盯"算对了没有"，用 TA-PO-001~008 八张订单
+逐条钉住齐套口径 ——
+
+| 订单 | 构造 | 期望 | 钉住的是什么 |
+|---|---|---|---|
+| TA-PO-001 | 到货 40@+1、40@+5，需求 70，开工 +3 | 到货风险，达需日 = +5 | 只看首批（+1 早于开工）或只看合计（80≥70）都会误判 |
+| TA-PO-002 | 库存 56，需求 56 | 齐套，达需日为空 | 库存即够时不该编造到货日期 |
+| TA-PO-003 | 库存 8 + 到货 20@+2，需求 28，开工 +4 | 预计齐套，达需日 = +2 | 库存与到货要合并累计 |
+| TA-PO-004 | 到货 24@+10，开工 +2 | 到货风险，达需日 = +10 | 单批到货晚于开工 |
+| TA-PO-005 | 库存 30，需求 30 | 齐套 | 恰好相等算齐套（gap = 0 不进入缺料） |
+| TA-PO-006 | 无库存无到货 | 缺料，整单齐套日为空 | 永远不够时返回空，不编日期 |
+| TA-PO-007 | 库存 10 + 到货 16@+3，需求 26，开工 +5 | 预计齐套 | 分批累计仍早于开工 |
+| TA-PO-008 | 到货 16@+2、16@+7，需求 32，开工 +4 | 到货风险，达需日 = +7 | 首批够、第二批才达需 |
+
+另外还覆盖：**整单齐套日取缺料物料中最晚的那个**（给 TA-PO-001 再加一个 +9 达需的物料，整单齐套日必须从 +5 变成 +9）、
+`materialReadyDate()` 与 `kittingOf()` 结论同步、**未排产（`planStart` 空）不误判为到货风险**、
+**任何异常都带非空明细**、未排产订单不产生"预计到货延期"异常、`explodeBom` 不把有下级 BOM 的半成品计入需求
+但半成品库存仍可见、`explodeBomTree` 保留半成品行并给出缩进/所属母项/换算后的需求量、
+导入生产订单同时写 `orderLinks`（且重复导入被拒绝、不重复建关联）。
+
+> 这组用例本身也踩过一次坑，值得记下来：最初把八张订单挂在同一个产品下，而该产品的 BOM 有 8 个物料，
+> 于是每张订单都"缺 7 个物料"，16 项断言全红。**是夹具错了，不是规则错了** —— 改成"一单一个产品 + 一对一 BOM"
+> 后 34 项全绿。构造测试数据时，"订单实际需要什么"必须显式、可控，否则会测出一个假失败。
 
 **未自动化的部分**：页面渲染与弹窗链路（开工 / 完工 / 改派 / 导入 / 版本对比）目前靠手工验收，欢迎补 E2E。
 已手工做过的浏览器回归：三套场景 10 个路由无渲染报错、真实文件选择器完成多文件导入与重复导入、
 清空确认链路；以及**子路径部署回归**（`/ppd-mvp/` 下 22 项检查全通过、无 4xx 资源、hash 直链可用）。
 导入链路另做过一次无头 Chromium 手工回归：真实文件选择器完成 3 文件导入并写库、重复导入条数不变、
 清空确认与空库页面渲染均正常。
+
+**本轮交互改动也过了一遍无头浏览器 E2E（31 项断言）**：齐套明细置顶与未筛选为空、表头排序三态切换、
+物料预留确认后扣减并提示、取消确认后释放库存、BOM 按产品/层级/母项筛选、工艺路线按产品/工序筛选、
+排程六维筛选 + 当日计划查询 + 约束说明表、异常中心无空明细，全程无未捕获异常。
 
 ## 7. 运行环境与依赖
 
@@ -200,6 +267,10 @@ CI 在每次 push / PR 上跑上述四项（[`.github/workflows/ci.yml`](./.gith
 ## 8. 环境变量与数据
 
 **本项目不需要任何环境变量或密钥。** 没有后端、没有外部请求、没有埋点；所有数据只存在当前浏览器的 `localStorage` 里，不会上传到任何地方。
+
+> **因此数据是"每设备每浏览器一份"，不共享。** 在线演示地址、本机 http 地址、无痕窗口、不同浏览器，
+> 各自是一个独立的库；A 导入的数据 B 看不到，反之亦然（原因与替代方案见 [§2.1](#在线演示的数据是每人一份不是共享的)）。
+> 这也是"测试导入数据"不会外泄、不会污染他人演示的原因。
 
 - 数据键名：`ppd-mvp-v1`；数据内含 `SEED_REV` 版本号，旧版演示数据会提示一键重建。
 - 数据入口共四类：第 1 类是**合并**，第 2~4 类是**整库替换**：
@@ -254,6 +325,6 @@ It keeps planning, materials, execution and delivery in one data model: **hard-c
 
 No backend, no CDN, no `node_modules`: clone it, serve the `app/` folder, and it runs. Data lives in `localStorage`. It is also published as a pure static site on GitHub Pages — relative asset paths, hash routing and zero network calls, so the online demo needs no server process of its own.
 
-Your own data can be imported from **Excel (`.xlsx` / `.xls`) or CSV** — several files at once, scenarios detected from sheet names/headers, merged rather than replacing: master data is updated by code (ids preserved), documents are skipped when duplicated, so sales and production orders never overwrite each other and manual entries survive. A full-dataset JSON import and a guarded "clear all data" action are available under 场景 → 数据管理. 186 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 50 on import/export: CSV edge cases, row-level validation, date tolerance; 42 on JSON dataset import: envelopes, field-level errors, version relinking; 63 on Excel/CSV batch import: real xlsx/xls/GBK fixtures, xlsx storage variants, header/scenario detection, multi-batch idempotency, cross-scenario isolation, clear-all) run on every push via GitHub Actions.
+Your own data can be imported from **Excel (`.xlsx` / `.xls`) or CSV** — several files at once, scenarios detected from sheet names/headers, merged rather than replacing: master data is updated by code (ids preserved), documents are skipped when duplicated, so sales and production orders never overwrite each other and manual entries survive. A full-dataset JSON import and a guarded "clear all data" action are available under 场景 → 数据管理. Note that data is **per browser, per device** — there is no backend, so two people opening the same demo URL never see each other's data (each browser has its own `localStorage`). 220 automated checks (31 algorithmic: reproducibility, quantity conservation, constraint detection, zero NaN metrics; 50 on import/export: CSV edge cases, row-level validation, date tolerance; 42 on JSON dataset import: envelopes, field-level errors, version relinking; 63 on Excel/CSV batch import: real xlsx/xls/GBK fixtures, xlsx storage variants, header/scenario detection, multi-batch idempotency, cross-scenario isolation, clear-all; 34 on business-rule regressions: day-by-day inbound accumulation for kitting readiness, worst-case order-level ready date, semi-finished BOM expansion, sales-line↔production-order linking, non-empty exception details) run on every push via GitHub Actions.
 
 Licensed under MIT.

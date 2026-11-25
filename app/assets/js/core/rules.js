@@ -11,7 +11,15 @@ const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /* ───────────── 一、BOM 展开（两级，预留多级） ───────────── */
 
 /**
- * 展开产品物料需求
+ * 展开产品物料需求（只返回**需要采购/领用**的项）
+ *
+ * 半成品口径（与方案一致，不得更改）：
+ *   半成品若自身有下级 BOM（如 SE-GEAR → RM-45S + PT-BEAR），说明它是自制件，
+ *   需求由下级材料承接，半成品本身不计入需求（也不占库存）；
+ *   半成品若**没有**下级 BOM，则按普通物料计需求（相当于外购/现成半成品）。
+ * 这一口径让"半成品仍出现在库存与到货页"成立 —— 它有自己的库存与到货记录，
+ * 只是不作为产品 BOM 的需求项重复计数。
+ *
  * @returns [{ materialId, qty, level }]  已按物料汇总
  */
 export function explodeBom(productId, qty, db) {
@@ -47,6 +55,107 @@ export function explodeBom(productId, qty, db) {
   }));
 }
 
+/**
+ * BOM 树形展开（用于"物料需求明细"展示层级关系）
+ *
+ * 与 explodeBom 的区别只在**展示**：这里保留半成品行与它的下级材料行，
+ * 并用 indent / parentCode 表达所属关系；需求数量的口径与 explodeBom 完全一致
+ * （半成品有下级时不重复计入需求）。
+ *
+ * @returns [{ kind:'SEMI'|'MATERIAL', materialId, code, name, required, qtyPer,
+ *             level, indent, parentId, parentCode, parentRequired, childCount, semi }]
+ */
+export function explodeBomTree(productId, qty, db) {
+  const items = (db.bomItems || []).filter((i) => i.productId === productId);
+  const mat = (id) => (db.materials || []).find((m) => m.id === id) || {};
+  const rows = [];
+
+  for (const it of items.filter((i) => i.level === 1)) {
+    const need = num(it.qtyPer) * num(qty);
+    const child = mat(it.childId);
+
+    if (it.childType !== 'SEMI') {
+      rows.push({
+        kind: 'MATERIAL',
+        materialId: it.childId,
+        code: child.code || it.childId,
+        name: child.name || '',
+        required: Math.ceil(need),
+        qtyPer: num(it.qtyPer),
+        level: 1,
+        indent: 0,
+        parentId: '',
+        parentCode: '',
+        parentRequired: 0,
+        childCount: 0,
+        semi: false,
+      });
+      continue;
+    }
+
+    const level2 = items.filter((i) => i.level === 2 && i.parentId === it.childId);
+    if (!level2.length) {
+      // 半成品没有下级 BOM：按普通物料计需求（与 explodeBom 一致）
+      rows.push({
+        kind: 'MATERIAL',
+        materialId: it.childId,
+        code: child.code || it.childId,
+        name: child.name || '',
+        required: Math.ceil(need),
+        qtyPer: num(it.qtyPer),
+        level: 1,
+        indent: 0,
+        parentId: '',
+        parentCode: '',
+        parentRequired: 0,
+        childCount: 0,
+        semi: true,
+        note: '半成品无下级 BOM，按物料计需求',
+      });
+      continue;
+    }
+
+    const semiQty = Math.ceil(need);
+    rows.push({
+      kind: 'SEMI',
+      materialId: it.childId,
+      code: child.code || it.childId,
+      name: child.name || '',
+      required: semiQty,
+      qtyPer: num(it.qtyPer),
+      level: 1,
+      indent: 0,
+      parentId: '',
+      parentCode: '',
+      parentRequired: 0,
+      childCount: level2.length,
+      semi: true,
+      note: '半成品：需求由下级材料承接，不计入采购/领用',
+    });
+
+    for (const l2 of level2) {
+      const c2 = mat(l2.childId);
+      rows.push({
+        kind: 'MATERIAL',
+        materialId: l2.childId,
+        code: c2.code || l2.childId,
+        name: c2.name || '',
+        required: Math.ceil(need * num(l2.qtyPer)),
+        qtyPer: num(l2.qtyPer),
+        level: 2,
+        indent: 1,
+        parentId: it.childId,
+        parentCode: child.code || it.childId,
+        parentRequired: semiQty,
+        childCount: 0,
+        semi: false,
+      });
+    }
+  }
+
+  return rows;
+}
+
 /* ───────────── 二、可用量口径（V1.0 §4.3 / BR-08） ───────────── */
 
 /** 物料当前库存合计 */
@@ -71,11 +180,49 @@ export function allocatableStock(materialId, db, orderId) {
   return Math.max(0, stockOf(materialId, db) - reservedOf(materialId, db, orderId));
 }
 
-/** 已确认到货（按日期汇总） */
+/** 已确认到货（按预计到货日升序） */
 export function confirmedInbounds(materialId, db) {
   return (db.inbounds || [])
     .filter((i) => i.materialId === materialId && i.confirmed)
-    .sort((a, b) => (a.expectedDate < b.expectedDate ? -1 : 1));
+    .sort((a, b) => (a.expectedDate < b.expectedDate ? -1 : a.expectedDate > b.expectedDate ? 1 : 0));
+}
+
+/**
+ * 按日期累计的可用量曲线
+ *
+ *   可用量(d) = 当前库存（扣除其他订单已确认预留） + Σ 预计到货日 ≤ d 的已确认到货数量
+ *
+ * 分批到货时不能只看"确认到货合计"：合计够了，但可能全都到得比开工日还晚。
+ * 逐日累计才能回答"哪一天开始够用"。
+ *
+ * @returns {{ stock:number, points: Array<{date:string, qty:number, add:number, cum:number}> }}
+ */
+export function availabilityCurve(materialId, db, orderId) {
+  const stock = allocatableStock(materialId, db, orderId);
+  const points = [];
+  let cum = stock;
+  for (const ib of confirmedInbounds(materialId, db)) {
+    cum += num(ib.qty);
+    points.push({ date: ib.expectedDate, add: num(ib.qty), qty: cum, cum });
+  }
+  return { stock, points };
+}
+
+/**
+ * 首次达需日：可用量首次 ≥ required 的日期
+ * @returns {{ byStock:boolean, met:boolean, date:string }}
+ *   byStock=true  → 现有库存已足够，date=''
+ *   met=true      → 到 date 这天累计到货后够用
+ *   met=false     → 到货计划无论怎么累计都不够
+ */
+export function firstMetDate(materialId, db, required, orderId) {
+  const { stock, points } = availabilityCurve(materialId, db, orderId);
+  const need = num(required);
+  if (stock >= need) return { byStock: true, met: true, date: '' };
+  for (const p of points) {
+    if (p.qty >= need) return { byStock: false, met: true, date: p.date };
+  }
+  return { byStock: false, met: false, date: '' };
 }
 
 /* ───────────── 三、齐套分析（S-A03 五状态判定） ───────────── */
@@ -90,6 +237,16 @@ const SEVERITY = {
 
 /**
  * 计算单订单的物料齐套情况
+ *
+ * 判定口径（S-A03）：
+ *   齐套        库存已够（可用库存 ≥ 需求量）
+ *   预计齐套    库存不够，但按日期累计的已确认到货能在计划开工日**之前**达需
+ *   到货风险    累计到货能达需，但达需日晚于计划开工日
+ *   部分齐套    有库存但不足以达需，且到货累计也不足以达需
+ *   缺料        无库存、到货累计也不足以达需
+ *   未排产（planStart 为空）时不判断"是否来得及"：没有开工日就没有比较基准，
+ *   此时只要能达需就记为「预计齐套」，并由界面提示"排产后复核"。
+ *
  * @param order 生产订单
  * @param db
  * @param planStart 计划开工日（用于判断到货是否来得及）
@@ -106,15 +263,19 @@ export function kittingOf(order, db, planStart) {
       .reduce((s, i) => s + num(i.qty), 0);
     const gap = Math.max(0, r.qty - stock);
     const earliestInbound = confirmed.length ? confirmed[0].expectedDate : '';
-    const coveredByInbound = confirmedQty >= gap;
-    const inboundInTime = earliestInbound && asOf ? earliestInbound <= asOf : false;
+
+    // 按日期累计，找"首次够用"的那天
+    const met = firstMetDate(r.materialId, db, r.qty, order.id);
+    const readyDate = met.met && !met.byStock ? met.date : '';
+    const coveredByInbound = met.met && !met.byStock;
+    const inboundInTime = !!(coveredByInbound && asOf && readyDate <= asOf);
 
     let status = KITTING_STATUS.KITTED.code;
     if (gap === 0) status = 'KITTED';
-    else if (stock === 0 && confirmedQty === 0) status = 'SHORT';
-    else if (coveredByInbound && !inboundInTime) status = 'INBOUND_RISK';
-    else if (coveredByInbound && inboundInTime) status = 'EXPECTED_KITTED';
-    else if (stock > 0) status = 'PARTIAL';
+    else if (coveredByInbound) {
+      if (!asOf) status = 'EXPECTED_KITTED'; // 未排产：到货能覆盖，及时性待排产后判断
+      else status = inboundInTime ? 'EXPECTED_KITTED' : 'INBOUND_RISK';
+    } else if (stock > 0 || confirmedQty > 0) status = 'PARTIAL';
     else status = 'SHORT';
 
     const material = (db.materials || []).find((m) => m.id === r.materialId);
@@ -122,12 +283,17 @@ export function kittingOf(order, db, planStart) {
       materialId: r.materialId,
       materialCode: material ? material.code : r.materialId,
       materialName: material ? material.name : '',
+      materialType: material ? material.type : '',
       required: r.qty,
       stock,
       confirmedQty,
       unconfirmedQty,
       gap,
       earliestInbound,
+      /** 首次达需日（累计到货口径）；库存已够或永远不够时为空 */
+      readyDate,
+      coveredByInbound,
+      inboundInTime,
       status,
       severity: SEVERITY[status],
     };
@@ -154,21 +320,37 @@ export function kittingOf(order, db, planStart) {
   }
   byInbound = Math.max(0, Math.min(order.qty, byInbound));
 
-  return { status, lines, maxStartByStock: byStock, maxStartByInbound: byInbound, shortage: status !== 'KITTED' };
+  /** 整单齐套日：全部缺料物料中**最晚**的首次达需日 */
+  const readyDates = lines.filter((l) => l.gap > 0 && l.readyDate).map((l) => l.readyDate);
+  const allCovered = lines.filter((l) => l.gap > 0).every((l) => l.readyDate);
+  const orderReadyDate = lines.some((l) => l.gap > 0) ? (allCovered ? readyDates.sort().pop() : '') : asOf;
+
+  return {
+    status,
+    lines,
+    maxStartByStock: byStock,
+    maxStartByInbound: byInbound,
+    orderReadyDate,
+    shortage: status !== 'KITTED',
+  };
 }
 
-/** 缺口物料的预计可满足日（用于排产开工日推算） */
+/**
+ * 缺口物料的齐套日（用于排产开工日推算）
+ *
+ * 口径：对订单**全部缺料物料**分别求首次达需日，取其中最晚的一个；
+ * 任一物料永远达不了需 → 返回 ''（无法确定，调用方按原计划并承担风险）。
+ */
 export function materialReadyDate(order, db) {
   const k = kittingOf(order, db, order.planStart);
-  if (k.status === 'KITTED') return order.planStart || '';
   const shortageLines = k.lines.filter((l) => l.gap > 0);
-  if (shortageLines.length === 0) return order.planStart || '';
-  let latest = order.planStart || '';
+  if (!shortageLines.length) return order.planStart || '';
+  let latest = '';
   for (const l of shortageLines) {
-    if (!l.earliestInbound) return order.planStart || ''; // 无到货计划，按原计划（带风险）
-    if (l.earliestInbound > latest) latest = l.earliestInbound;
+    if (!l.readyDate) return ''; // 有物料永远不够（无到货计划）→ 齐套日不可知
+    if (l.readyDate > latest) latest = l.readyDate;
   }
-  return latest;
+  return latest || order.planStart || '';
 }
 
 /* ───────────── 四、产能计算（P-03：双模式无换算层） ───────────── */

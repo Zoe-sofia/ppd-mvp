@@ -33,28 +33,38 @@ export function detect(db, asOf) {
   for (const o of orders) {
     const k = kittingOf(o, db, o.planStart);
     if (k.status === 'SHORT') {
+      const shortLines = k.lines.filter((l) => l.gap > 0);
       out.push({
         ...EXC_CODE.MAT_SHORT,
         orderId: o.id,
-        reason: `${o.code} 存在 ${k.lines.filter((l) => l.gap > 0).length} 项物料无库存且无到货计划`,
-        detail: k.lines.filter((l) => l.gap > 0).map((l) => `${l.materialCode} 缺 ${l.gap}`),
+        reason: `${o.code} 存在 ${shortLines.length} 项物料库存与到货累计均不足以覆盖需求`,
+        detail: shortLines.map((l) => `${l.materialCode} 需 ${l.required}，库存 ${l.stock}，已确认到货 ${l.confirmedQty}`),
       });
     } else if (k.status === 'PARTIAL') {
+      const partialLines = k.lines.filter((l) => l.gap > 0);
       out.push({
         ...EXC_CODE.MAT_QTY_SHORT,
         orderId: o.id,
         reason: `${o.code} 部分物料不足，最多可开工 ${k.maxStartByStock} / ${o.qty}`,
-        detail: k.lines.filter((l) => l.gap > 0).map((l) => `${l.materialCode} 缺 ${l.gap}`),
+        detail: partialLines.map((l) => `${l.materialCode} 缺 ${l.gap}（库存 ${l.stock}，到货 ${l.confirmedQty}）`),
       });
     } else if (k.status === 'INBOUND_RISK') {
-      out.push({
-        ...EXC_CODE.MAT_INBOUND_DELAY,
-        orderId: o.id,
-        reason: `${o.code} 已确认到货晚于计划开工，需顺延开工或调整到货`,
-        detail: k.lines
-          .filter((l) => l.earliestInbound && o.planStart && l.earliestInbound > o.planStart)
-          .map((l) => `${l.materialCode} 到货 ${l.earliestInbound}`),
-      });
+      /**
+       * 只在"能说清是哪些物料、差多少天"时才建这条异常。
+       * 未排产（planStart 为空）时没有比较基准，旧实现会生成一条 reason 有值、明细为空的异常，
+       * 用户点进去只看到一句"另需顺延开工"却看不到是哪张单、哪些料。
+       */
+      const riskLines = k.lines.filter((l) => l.gap > 0 && l.readyDate && o.planStart && l.readyDate > o.planStart);
+      if (riskLines.length) {
+        out.push({
+          ...EXC_CODE.MAT_INBOUND_DELAY,
+          orderId: o.id,
+          reason: `${o.code} 已确认到货的累计达需日晚于计划开工 ${o.planStart}，需顺延开工或调整到货`,
+          detail: riskLines.map(
+            (l) => `${l.materialCode} 需 ${l.required}，库存 ${l.stock}，累计达需 ${l.readyDate}（晚 ${diffCalendarDays(o.planStart, l.readyDate)} 天）`
+          ),
+        });
+      }
     }
     const lateInb = (db.inbounds || []).filter(
       (i) => i.expectedDate && i.actualArrivalDate && i.actualArrivalDate > i.expectedDate
@@ -66,6 +76,9 @@ export function detect(db, asOf) {
           ...EXC_CODE.MAT_INBOUND_DELAY,
           orderId: o.id,
           reason: `${o.code} 的物料到货晚于计划：${lateInb.map((i) => `${i.materialCode || i.materialId}(+${diffCalendarDays(i.expectedDate, i.actualArrivalDate)}天)`).join('、')}`,
+          detail: lateInb.map(
+            (i) => `${i.materialCode || i.materialId} 预计 ${i.expectedDate}，实际 ${i.actualArrivalDate}，晚 ${diffCalendarDays(i.expectedDate, i.actualArrivalDate)} 天`
+          ),
         });
       }
     }

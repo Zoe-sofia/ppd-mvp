@@ -3,13 +3,20 @@
  * 14 类基础数据的手工维护 + Excel 双路径导入（主数据覆盖 / 单据拒绝）+ 模板下载与导出
  */
 
-import { badge, esc, modal, num, table, tabs, toast, download, confirmDialog } from '../dom.js';
+import { badge, esc, modal, num, table, tabs, toast, download, confirmDialog, sortRows, bindSort } from '../dom.js';
 import { IMPORT_SPECS, templateCsv, exportCsv } from '../../io.js';
 import { openBatchImport, openDataManager } from '../import-center.js';
 import { uid } from '../../core/store.js';
 
 let tab = 'products';
 let spec = 'products';
+
+/** BOM 明细筛选（产品 / 层级 / 母项） */
+let bomFilter = { product: '', level: '', parent: '' };
+/** 工艺路线筛选（产品 / 工序名称） */
+let routingFilter = { product: '', op: '' };
+/** 各表排序状态 */
+const sorts = { products: null, materials: null, bom: null, routing: null, centers: null, caps: null, inventory: null, inbound: null };
 
 const TABS = [
   { key: 'products', label: '产品' },
@@ -23,6 +30,21 @@ const TABS = [
   { key: 'inventory', label: '库存' },
   { key: 'inbound', label: '到货' },
 ];
+
+/** BOM 明细中所有出现过的母项（产品 + 半成品），用于筛选下拉 */
+function parentOptions(db) {
+  const seen = new Map();
+  for (const b of db.bomItems) {
+    if (b.parentType === 'PRODUCT') {
+      const p = db.products.find((x) => x.id === b.parentId);
+      if (p) seen.set(p.id, `${p.code}（成品）`);
+    } else {
+      const m = db.materials.find((x) => x.id === b.parentId);
+      if (m) seen.set(m.id, `${m.code}（半成品）`);
+    }
+  }
+  return [...seen.entries()].map(([value, label]) => ({ value, label }));
+}
 
 export default {
   render(view, ctx) {
@@ -81,6 +103,51 @@ export default {
     view.querySelectorAll('[data-toggle-hd]').forEach((b) =>
       b.addEventListener('click', () => toggleHoliday(ctx, b.dataset.toggleHd))
     );
+
+    /* 表内筛选（BOM / 工艺路线） */
+    const bomProduct = view.querySelector('#bom-product');
+    if (bomProduct) {
+      bomProduct.addEventListener('change', () => {
+        bomFilter.product = bomProduct.value;
+        ctx.redraw();
+      });
+      view.querySelector('#bom-level').addEventListener('change', (e) => {
+        bomFilter.level = e.target.value;
+        ctx.redraw();
+      });
+      view.querySelector('#bom-parent').addEventListener('change', (e) => {
+        bomFilter.parent = e.target.value;
+        ctx.redraw();
+      });
+      view.querySelector('[data-act="bom-reset"]').addEventListener('click', () => {
+        bomFilter = { product: '', level: '', parent: '' };
+        ctx.redraw();
+      });
+    }
+    const rtProduct = view.querySelector('#rt-product');
+    if (rtProduct) {
+      rtProduct.addEventListener('change', () => {
+        routingFilter.product = rtProduct.value;
+        ctx.redraw();
+      });
+      view.querySelector('#rt-op').addEventListener('change', (e) => {
+        routingFilter.op = e.target.value;
+        ctx.redraw();
+      });
+      view.querySelector('[data-act="routing-reset"]').addEventListener('click', () => {
+        routingFilter = { product: '', op: '' };
+        ctx.redraw();
+      });
+    }
+
+    bindSort(
+      view,
+      () => sorts[tab],
+      (s) => {
+        sorts[tab] = s;
+      },
+      () => ctx.redraw()
+    );
   },
 };
 
@@ -92,78 +159,173 @@ function countOf(db, key) {
 
 function renderTab(db, key) {
   if (key === 'products') {
+    const rows = sortRows(
+      db.products.map((r) => ({
+        ...r,
+        __bom: db.bomItems.filter((b) => b.productId === r.id).length,
+        __ops: db.routings.find((x) => x.productId === r.id)
+          ? db.routingOps.filter((o) => o.routingId === db.routings.find((x) => x.productId === r.id).id).length
+          : 0,
+      })),
+      sorts.products,
+      (r, k) => (k === 'bom' ? r.__bom : k === 'ops' ? r.__ops : r[k] ?? '')
+    );
     return table(
       [
-        { title: '产品编号', render: (r) => `<b>${esc(r.code)}</b>` },
-        { title: '产品名称', render: (r) => esc(r.name) },
-        { title: '单位', render: (r) => esc(r.unit) },
-        { title: 'BOM 项数', cls: 'num', render: (r) => db.bomItems.filter((b) => b.productId === r.id).length },
-        { title: '工艺工序数', cls: 'num', render: (r) => (db.routings.find((x) => x.productId === r.id) ? db.routingOps.filter((o) => o.routingId === db.routings.find((x) => x.productId === r.id).id).length : 0) },
+        { title: '产品编号', sortKey: 'code', render: (r) => `<b>${esc(r.code)}</b>` },
+        { title: '产品名称', sortKey: 'name', render: (r) => esc(r.name) },
+        { title: '单位', cls: 'num', sortKey: 'unit', render: (r) => esc(r.unit) },
+        { title: 'BOM 项数', cls: 'num', sortKey: 'bom', render: (r) => r.__bom },
+        { title: '工艺工序数', cls: 'num', sortKey: 'ops', render: (r) => r.__ops },
         { title: '', cls: 'nowrap', render: (r) => `<button class="btn sm ghost" data-edit="${r.id}">编辑</button><button class="btn sm ghost" data-del="products:${r.id}">删除</button>` },
       ],
-      db.products
+      rows,
+      { sort: sorts.products }
     );
   }
   if (key === 'materials') {
+    const rows = sortRows(db.materials, sorts.materials, (r, k) => r[k] ?? '');
     return table(
       [
-        { title: '物料编号', render: (r) => `<b>${esc(r.code)}</b>` },
-        { title: '名称', render: (r) => esc(r.name) },
-        { title: '单位', render: (r) => esc(r.unit) },
-        { title: '类型', render: (r) => badge(r.type === 'SEMI' ? '半成品' : r.type === 'RAW' ? '原材料' : '采购件', r.type === 'SEMI' ? 'info' : 'muted') },
+        { title: '物料编号', sortKey: 'code', render: (r) => `<b>${esc(r.code)}</b>` },
+        { title: '名称', sortKey: 'name', render: (r) => esc(r.name) },
+        { title: '单位', sortKey: 'unit', render: (r) => esc(r.unit) },
+        { title: '类型', sortKey: 'type', render: (r) => badge(r.type === 'SEMI' ? '半成品' : r.type === 'RAW' ? '原材料' : '采购件', r.type === 'SEMI' ? 'info' : 'muted') },
         { title: '', cls: 'nowrap', render: (r) => `<button class="btn sm ghost" data-edit="${r.id}">编辑</button><button class="btn sm ghost" data-del="materials:${r.id}">删除</button>` },
       ],
-      db.materials
+      rows,
+      { sort: sorts.materials }
     );
   }
   if (key === 'bom') {
-    return table(
-      [
-        { title: '产品', render: (r) => esc((db.products.find((p) => p.id === r.productId) || {}).code || '') },
-        { title: '层级', render: (r) => (r.level === 1 ? '一级（成品→半成品/物料）' : '二级（半成品→原材料）') },
-        { title: '父项', render: (r) => esc(r.parentType === 'PRODUCT' ? (db.products.find((p) => p.id === r.parentId) || {}).code || '' : (db.materials.find((m) => m.id === r.parentId) || {}).code || '') },
-        { title: '子项', render: (r) => esc((db.materials.find((m) => m.id === r.childId) || {}).code || '') },
-        { title: '类型', render: (r) => badge(r.childType === 'SEMI' ? '半成品' : '物料', r.childType === 'SEMI' ? 'info' : 'muted') },
-        { title: '单位用量', cls: 'num', render: (r) => r.qtyPer },
-        { title: '', render: (r) => `<button class="btn sm ghost" data-del="bomItems:${r.id}">删除</button>` },
-      ],
+    const parents = parentOptions(db);
+    const rows = sortRows(
       db.bomItems
+        .filter((r) => !bomFilter.product || r.productId === bomFilter.product)
+        .filter((r) => !bomFilter.level || String(r.level) === bomFilter.level)
+        .filter((r) => !bomFilter.parent || r.parentId === bomFilter.parent)
+        .map((r) => ({
+          ...r,
+          __product: db.products.find((p) => p.id === r.productId) || {},
+          __parent: r.parentType === 'PRODUCT' ? db.products.find((p) => p.id === r.parentId) || {} : db.materials.find((m) => m.id === r.parentId) || {},
+          __child: db.materials.find((m) => m.id === r.childId) || {},
+        })),
+      sorts.bom,
+      (r, k) =>
+        k === 'level' ? r.level : k === 'qtyPer' ? r.qtyPer : k === 'product' ? r.__product.code || '' : k === 'parent' ? r.__parent.code || '' : k === 'child' ? r.__child.code || '' : ''
     );
+    return `
+      <div class="toolbar" style="border-bottom:1px solid var(--line)">
+        <span class="small">筛选：</span>
+        <select id="bom-product" style="width:170px"><option value="">全部产品</option>${db.products
+          .map((p) => `<option value="${p.id}" ${p.id === bomFilter.product ? 'selected' : ''}>${esc(p.code)} · ${esc(p.name)}</option>`)
+          .join('')}</select>
+        <select id="bom-level" style="width:170px">
+          <option value="">全部层级</option>
+          <option value="1" ${bomFilter.level === '1' ? 'selected' : ''}>一级（成品→半成品/物料）</option>
+          <option value="2" ${bomFilter.level === '2' ? 'selected' : ''}>二级（半成品→原材料）</option>
+        </select>
+        <select id="bom-parent" style="width:190px"><option value="">全部母项</option>${parents
+          .map((p) => `<option value="${p.value}" ${p.value === bomFilter.parent ? 'selected' : ''}>${esc(p.label)}</option>`)
+          .join('')}</select>
+        <button class="btn sm ghost" data-act="bom-reset">重置</button>
+        <span class="spacer"></span>
+        <span class="small muted">共 ${rows.length} / ${db.bomItems.length} 条</span>
+      </div>
+      ${table(
+        [
+          { title: '产品', sortKey: 'product', render: (r) => esc(r.__product.code || '') },
+          { title: '层级', sortKey: 'level', render: (r) => (r.level === 1 ? '一级（成品→半成品/物料）' : '二级（半成品→原材料）') },
+          {
+            title: '母项',
+            sortKey: 'parent',
+            render: (r) =>
+              `${esc(r.__parent.code || '')}${r.parentType === 'SEMI' ? ' ' + badge('半成品', 'info') : ''}`,
+          },
+          { title: '子项', sortKey: 'child', render: (r) => esc(r.__child.code || '') },
+          { title: '类型', render: (r) => badge(r.childType === 'SEMI' ? '半成品' : '物料', r.childType === 'SEMI' ? 'info' : 'muted') },
+          { title: '单位用量', cls: 'num', sortKey: 'qtyPer', render: (r) => r.qtyPer },
+          { title: '', render: (r) => `<button class="btn sm ghost" data-del="bomItems:${r.id}">删除</button>` },
+        ],
+        rows,
+        { sort: sorts.bom, empty: '当前筛选条件下没有 BOM 明细' }
+      )}`;
   }
   if (key === 'routing') {
-    return table(
-      [
-        { title: '产品', render: (r) => esc((db.products.find((p) => p.id === (db.routings.find((x) => x.id === r.routingId) || {}).productId) || {}).code || '') },
-        { title: '工序号', cls: 'mono', render: (r) => r.seq },
-        { title: '工序名称', render: (r) => `<b>${esc(r.name)}</b>` },
-        { title: '单位标准工时(小时/件)', cls: 'num', render: (r) => r.stdHoursPerUnit },
-        { title: '', render: (r) => `<button class="btn sm ghost" data-del="routingOps:${r.id}">删除</button>` },
-      ],
-      [...db.routingOps].sort((a, b) => a.seq - b.seq)
+    const opNames = [...new Set(db.routingOps.map((o) => o.name))].sort();
+    const rows = sortRows(
+      db.routingOps
+        .map((r) => ({
+          ...r,
+          __product: db.products.find((p) => p.id === (db.routings.find((x) => x.id === r.routingId) || {}).productId) || {},
+        }))
+        .filter((r) => !routingFilter.product || r.__product.id === routingFilter.product)
+        .filter((r) => !routingFilter.op || r.name === routingFilter.op),
+      sorts.routing,
+      (r, k) =>
+        k === 'seq' ? r.seq : k === 'hours' ? r.stdHoursPerUnit : k === 'product' ? r.__product.code || '' : k === 'op' ? r.name : ''
     );
+    return `
+      <div class="toolbar" style="border-bottom:1px solid var(--line)">
+        <span class="small">筛选：</span>
+        <select id="rt-product" style="width:170px"><option value="">全部产品</option>${db.products
+          .map((p) => `<option value="${p.id}" ${p.id === routingFilter.product ? 'selected' : ''}>${esc(p.code)} · ${esc(p.name)}</option>`)
+          .join('')}</select>
+        <select id="rt-op" style="width:170px"><option value="">全部工序</option>${opNames
+          .map((n) => `<option value="${esc(n)}" ${n === routingFilter.op ? 'selected' : ''}>${esc(n)}</option>`)
+          .join('')}</select>
+        <button class="btn sm ghost" data-act="routing-reset">重置</button>
+        <span class="spacer"></span>
+        <span class="small muted">共 ${rows.length} / ${db.routingOps.length} 条</span>
+      </div>
+      ${table(
+        [
+          { title: '产品', sortKey: 'product', render: (r) => esc(r.__product.code || '') },
+          { title: '工序号', cls: 'mono', sortKey: 'seq', render: (r) => r.seq },
+          { title: '工序名称', sortKey: 'op', render: (r) => `<b>${esc(r.name)}</b>` },
+          { title: '单位标准工时(小时/件)', cls: 'num', sortKey: 'hours', render: (r) => r.stdHoursPerUnit },
+          { title: '', render: (r) => `<button class="btn sm ghost" data-del="routingOps:${r.id}">删除</button>` },
+        ],
+        rows,
+        { sort: sorts.routing, empty: '当前筛选条件下没有工艺路线' }
+      )}`;
   }
   if (key === 'centers') {
+    const rows = sortRows(db.workCenters, sorts.centers, (r, k) =>
+      k === 'capacity' ? (r.capacityMode === 'STD_HOURS' ? 0 : num(r.dailyCapacity)) : k === 'hours' ? num(r.dailyHours) : r[k] ?? ''
+    );
     return table(
       [
-        { title: '编码', render: (r) => `<b>${esc(r.code)}</b>` },
-        { title: '名称', render: (r) => esc(r.name) },
-        { title: '产能模式', render: (r) => (r.capacityMode === 'STD_HOURS' ? '标准工时' : '固定日产能') },
-        { title: '日产能(件/日)', cls: 'num', render: (r) => (r.capacityMode === 'STD_HOURS' ? '—' : num(r.dailyCapacity)) },
-        { title: '日可用工时', cls: 'num', render: (r) => num(r.dailyHours) },
+        { title: '编码', sortKey: 'code', render: (r) => `<b>${esc(r.code)}</b>` },
+        { title: '名称', sortKey: 'name', render: (r) => esc(r.name) },
+        { title: '产能模式', sortKey: 'capacityMode', render: (r) => (r.capacityMode === 'STD_HOURS' ? '标准工时' : '固定日产能') },
+        { title: '日产能(件/日)', cls: 'num', sortKey: 'capacity', render: (r) => (r.capacityMode === 'STD_HOURS' ? '—' : num(r.dailyCapacity)) },
+        { title: '日可用工时', cls: 'num', sortKey: 'hours', render: (r) => num(r.dailyHours) },
         { title: '适配工序', render: (r) => `<span class="small">${db.capabilities.filter((c) => c.workCenterId === r.id).map((c) => c.opName || (db.routingOps.find((o) => o.id === c.opId) || {}).name || '').filter(Boolean).join('、')}</span>` },
         { title: '', cls: 'nowrap', render: (r) => `<button class="btn sm ghost" data-edit="${r.id}">编辑</button><button class="btn sm ghost" data-del="workCenters:${r.id}">删除</button>` },
       ],
-      db.workCenters
+      rows,
+      { sort: sorts.centers }
     );
   }
   if (key === 'caps') {
+    const rows = sortRows(
+      db.capabilities.map((r) => ({
+        ...r,
+        __wc: (db.workCenters.find((w) => w.id === r.workCenterId) || {}).name || '',
+        __op: r.opName || (db.routingOps.find((o) => o.id === r.opId) || {}).name || '',
+      })),
+      sorts.caps,
+      (r, k) => (k === 'wc' ? r.__wc : k === 'op' ? r.__op : '')
+    );
     return table(
       [
-        { title: '工作中心', render: (r) => esc((db.workCenters.find((w) => w.id === r.workCenterId) || {}).name || '') },
-        { title: '工序', render: (r) => esc(r.opName || (db.routingOps.find((o) => o.id === r.opId) || {}).name || '') },
+        { title: '工作中心', sortKey: 'wc', render: (r) => esc(r.__wc) },
+        { title: '工序', sortKey: 'op', render: (r) => esc(r.__op) },
         { title: '', render: (r) => `<button class="btn sm ghost" data-del="capabilities:${r.id}">删除</button>` },
       ],
-      db.capabilities
+      rows,
+      { sort: sorts.caps }
     );
   }
   if (key === 'calendar') {
@@ -204,27 +366,40 @@ function renderTab(db, key) {
     );
   }
   if (key === 'inventory') {
+    const rows = sortRows(
+      db.inventory.map((r) => ({
+        ...r,
+        __m: db.materials.find((m) => m.id === r.materialId) || {},
+      })),
+      sorts.inventory,
+      (r, k) => (k === 'material' ? r.__m.code || '' : k === 'qty' ? num(r.qty) : r[k] ?? '')
+    );
     return table(
       [
-        { title: '物料', render: (r) => esc((db.materials.find((m) => m.id === r.materialId) || {}).code || '') },
-        { title: '名称', render: (r) => esc((db.materials.find((m) => m.id === r.materialId) || {}).name || '') },
-        { title: '仓库', render: (r) => esc(r.warehouse) },
-        { title: '数量', cls: 'num', render: (r) => num(r.qty) },
+        { title: '物料', sortKey: 'material', render: (r) => esc(r.__m.code || '') },
+        { title: '名称', render: (r) => esc(r.__m.name || '') },
+        { title: '仓库', sortKey: 'warehouse', render: (r) => esc(r.warehouse) },
+        { title: '数量', cls: 'num', sortKey: 'qty', render: (r) => num(r.qty) },
         { title: '', render: (r) => `<button class="btn sm ghost" data-del="inventory:${r.id}">删除</button>` },
       ],
-      db.inventory
+      rows,
+      { sort: sorts.inventory }
     );
   }
+  const rows = sortRows(db.inbounds, sorts.inbound, (r, k) =>
+    k === 'qty' ? num(r.qty) : k === 'confirmed' ? (r.confirmed ? 1 : 0) : r[k] ?? ''
+  );
   return table(
     [
-      { title: '物料', render: (r) => esc(r.materialCode || '') },
-      { title: '数量', cls: 'num', render: (r) => num(r.qty) },
-      { title: '预计到货', cls: 'mono', render: (r) => esc(r.expectedDate) },
-      { title: '确认', render: (r) => badge(r.confirmed ? '已确认' : '未确认', r.confirmed ? 'ok' : 'warn') },
-      { title: '实际到货', cls: 'mono', render: (r) => esc(r.actualArrivalDate || '—') },
+      { title: '物料', sortKey: 'materialCode', render: (r) => esc(r.materialCode || '') },
+      { title: '数量', cls: 'num', sortKey: 'qty', render: (r) => num(r.qty) },
+      { title: '预计到货', cls: 'mono', sortKey: 'expectedDate', render: (r) => esc(r.expectedDate) },
+      { title: '确认', sortKey: 'confirmed', render: (r) => badge(r.confirmed ? '已确认' : '未确认', r.confirmed ? 'ok' : 'warn') },
+      { title: '实际到货', cls: 'mono', sortKey: 'actualArrivalDate', render: (r) => esc(r.actualArrivalDate || '—') },
       { title: '', render: (r) => `<button class="btn sm ghost" data-del="inbounds:${r.id}">删除</button>` },
     ],
-    db.inbounds
+    rows,
+    { sort: sorts.inbound }
   );
 }
 

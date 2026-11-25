@@ -147,7 +147,18 @@ table.tb .num { text-align: right; font-variant-numeric: tabular-nums; font-fami
 table.tb .mono { font-family: var(--mono); font-size: 12px; }
 table.tb .nowrap { white-space: nowrap; }
 table.tb .muted { color: var(--sub); }
+/* 可排序表头：⇅ 未排序 / ▲ 升序 / ▼ 降序，第三次点击取消 */
+table.tb thead th.sortable { cursor: pointer; user-select: none; }
+table.tb thead th.sortable:hover { background: #eef3fa; color: var(--text); }
+table.tb thead th.sortable:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+table.tb thead th.sortable .sort-ind { margin-left: 4px; font-size: 9px; color: #b4c0cf; }
+table.tb thead th.sortable.sorted { color: var(--brand); }
+table.tb thead th.sortable.sorted .sort-ind { color: var(--brand); }
 .empty { padding: 36px 14px; text-align: center; color: var(--sub); font-size: 12.5px; }
+
+/* 层级缩进（物料需求明细：半成品 → 下级材料） */
+.tree-indent { display: inline-block; color: #c2ccd9; font-family: var(--mono); }
+.tree-parent { font-size: 11px; color: var(--sub); }
 
 /* ───────── 徽标 ───────── */
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 10px; font-size: 11.5px; line-height: 18px; white-space: nowrap; border: 1px solid transparent; }

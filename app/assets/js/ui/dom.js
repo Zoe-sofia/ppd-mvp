@@ -25,13 +25,27 @@ export const bar = (ratio, tone = '') => {
 
 /**
  * 表格渲染
- * columns: [{ key, title, cls, render(row) }]
+ * columns: [{ key, title, cls, render(row), sortKey }]
+ * opts: { empty, rowAttr, sort }
+ *
+ * 排序约定：列上声明 sortKey 即视为可排序，表头出现 ⇅ / ▲ / ▼；
+ * 具体排序在页面里用 sortRows() 完成后再传给本函数（保持 table 是纯渲染）。
  */
 export function table(columns, rows, opts = {}) {
   if (!rows || rows.length === 0) {
     return `<div class="empty">${esc(opts.empty || '暂无数据')}</div>`;
   }
-  const head = columns.map((c) => `<th class="${c.cls || ''}">${c.title}</th>`).join('');
+  const sort = opts.sort || null;
+  const head = columns
+    .map((c) => {
+      const cls = c.cls || '';
+      if (!c.sortKey) return `<th class="${cls}">${c.title}</th>`;
+      const active = sort && sort.key === c.sortKey;
+      const arrow = active ? (sort.dir === 'desc' ? '▼' : '▲') : '⇅';
+      const aria = active ? ` aria-sort="${sort.dir === 'desc' ? 'descending' : 'ascending'}"` : '';
+      return `<th class="${cls} sortable${active ? ' sorted' : ''}" data-sort="${esc(c.sortKey)}"${aria} role="button" tabindex="0" title="点击切换升序 / 降序（第三次取消）">${c.title}<span class="sort-ind">${arrow}</span></th>`;
+    })
+    .join('');
   const body = rows
     .map((r, i) => {
       const tds = columns
@@ -41,6 +55,65 @@ export function table(columns, rows, opts = {}) {
     })
     .join('');
   return `<div class="table-wrap"><table class="tb"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+/* ───────── 排序 ───────── */
+
+/**
+ * 行排序
+ * @param rows 原始行
+ * @param sort { key, dir } | null
+ * @param getter (row, key) => 排序值；缺省取 row[key]
+ * 数字列按数值比较，其余按中文语境字符串比较；空值始终排在后面。
+ */
+export function sortRows(rows, sort, getter) {
+  if (!sort || !sort.key) return rows;
+  const val = (r) => (getter ? getter(r, sort.key) : r[sort.key]);
+  const blank = (v) => v === undefined || v === null || v === '';
+  const arr = [...rows];
+  arr.sort((a, b) => {
+    const va = val(a);
+    const vb = val(b);
+    if (blank(va) && blank(vb)) return 0;
+    if (blank(va)) return 1;
+    if (blank(vb)) return -1;
+    const na = Number(va);
+    const nb = Number(vb);
+    const numeric = Number.isFinite(na) && Number.isFinite(nb);
+    const cmp = numeric ? na - nb : String(va).localeCompare(String(vb), 'zh-CN');
+    return sort.dir === 'desc' ? -cmp : cmp;
+  });
+  return arr;
+}
+
+/** 三态切换：升序 → 降序 → 取消 */
+export function nextSort(cur, key) {
+  if (!cur || cur.key !== key) return { key, dir: 'asc' };
+  if (cur.dir === 'asc') return { key, dir: 'desc' };
+  return null;
+}
+
+/**
+ * 绑定可排序表头
+ * @param root 渲染容器
+ * @param getSort () => sort
+ * @param setSort (sort) => void   通常写入模块级状态
+ * @param redraw () => void
+ */
+export function bindSort(root, getSort, setSort, redraw) {
+  root.querySelectorAll('th[data-sort]').forEach((th) => {
+    const run = () => {
+      setSort(nextSort(getSort(), th.dataset.sort));
+      redraw();
+    };
+    th.addEventListener('click', run);
+    th.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        run();
+      }
+    });
+  });
 }
 
 export function options(list, selected, placeholder) {

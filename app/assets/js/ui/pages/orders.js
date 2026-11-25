@@ -4,7 +4,7 @@
  * 一拆多、多对一通过「行-单」关联层表达（P-02）
  */
 
-import { badge, esc, modal, num, table, tabs, toast, confirmDialog, options } from '../dom.js';
+import { badge, esc, modal, num, table, tabs, toast, confirmDialog, options, sortRows, bindSort } from '../dom.js';
 import { ORDER_STATUS, KITTING_STATUS, RISK_STATUS, label, toneOf } from '../../core/constants.js';
 import { scoreOrder, committedUtilization } from '../../core/scheduler.js';
 import { kittingOf } from '../../core/rules.js';
@@ -15,19 +15,53 @@ import { uid } from '../../core/store.js';
 let tab = 'po';
 let kw = '';
 let statusFilter = '';
+/** 生产订单表排序：{ key, dir } | null */
+let sort = { key: 'code', dir: 'desc' };
+
+/**
+ * 销售行已建立的生产订单
+ *
+ * 两处关联都要看：orderLinks 是标准关联表；salesOrderLineId 是订单上的冗余外键。
+ * 历史导入数据可能只写了后者（导入补丁之前），只看 orderLinks 会误显示「建立生产订单」。
+ */
+function ordersOfLine(db, lineId) {
+  const ids = new Set();
+  for (const l of db.orderLinks || []) if (l.lineId === lineId) ids.add(l.orderId);
+  for (const o of db.productionOrders || []) if (o.salesOrderLineId === lineId) ids.add(o.id);
+  return [...ids].map((id) => db.productionOrders.find((o) => o.id === id)).filter(Boolean);
+}
+
+/** 生产订单行排序取值 */
+function poSortValue(r, key) {
+  const o = r;
+  if (key === 'productCode') return (r.__product || {}).code || '';
+  if (key === 'product') return (r.__product || {}).name || '';
+  if (key === 'due') return dueDateOf(r.__db, o) || '';
+  if (key === 'qty') return Number(o.qty) || 0;
+  if (key === 'priority') return Number(o.manualPriority) || 0;
+  if (key === 'status') return o.status || '';
+  if (key === 'start') return o.planStart || '';
+  if (key === 'finish') return r.__finish || '';
+  return o[key] ?? '';
+}
 
 const store = { get: () => ({ tab, kw, statusFilter }), set: (p) => Object.assign({}, p) };
 
 export default {
   render(view, ctx) {
     const { db, asOf } = ctx;
-    const linkedLineIds = new Set(db.orderLinks.map((l) => l.lineId));
 
     const soRows = db.salesOrders.filter((s) => !kw || s.code.includes(kw) || s.customer.includes(kw));
-    const poRows = db.productionOrders
+    const poBase = db.productionOrders
       .filter((o) => !kw || o.code.includes(kw) || (o.remark || '').includes(kw))
       .filter((o) => !statusFilter || o.status === statusFilter)
-      .sort((a, b) => b.code.localeCompare(a.code));
+      .map((o) => ({
+        ...o,
+        __db: db,
+        __product: db.products.find((p) => p.id === o.productId) || {},
+        __finish: finishDateOf(db, o).date || '',
+      }));
+    const poRows = sortRows(poBase, sort, poSortValue);
 
     const util = committedUtilization(db, db.activeVersionId);
 
@@ -61,23 +95,28 @@ export default {
           tab === 'po'
             ? table(
                 [
-                  { title: '生产订单号', render: (o) => `<b>${esc(o.code)}</b>${o.remark ? `<div class="small">${esc(o.remark)}</div>` : ''}` },
+                  { title: '生产订单号', sortKey: 'code', render: (o) => `<b>${esc(o.code)}</b>${o.remark ? `<div class="small">${esc(o.remark)}</div>` : ''}` },
                   {
                     title: '关联销售行',
                     render: (o) => {
                       const links = db.orderLinks.filter((l) => l.orderId === o.id);
                       return links.length > 1
                         ? `${badge(`${links.length} 行合并`, 'info')}`
-                        : `<span class="mono-s">${esc(links[0] ? links[0].lineId : o.salesOrderLineId)}</span>`;
+                        : `<span class="mono-s">${esc(links[0] ? links[0].lineId : o.salesOrderLineId || '—')}</span>`;
                     },
                   },
-                  { title: '产品', render: (o) => esc((db.products.find((p) => p.id === o.productId) || {}).name || o.productId) },
-                  { title: '数量', cls: 'num', render: (o) => num(o.qty) },
-                  { title: '人工优先级', render: (o) => `P${o.manualPriority || 3}` },
-                  { title: '客户交期', cls: 'mono', render: (o) => esc(dueDateOf(db, o) || '—') },
-                  { title: '计划起止', cls: 'mono', render: (o) => `${esc(o.planStart || '—')}<br/>${esc(o.planEnd || '—')}` },
-                  { title: '预计完工', cls: 'mono', render: (o) => esc(finishDateOf(db, o).date || '—') },
-                  { title: '状态', render: (o) => badge(label(ORDER_STATUS, o.status), o.status === 'COMPLETED' ? 'ok' : o.status === 'IN_PROGRESS' ? 'info' : 'muted') },
+                  {
+                    title: '产品编号',
+                    sortKey: 'productCode',
+                    render: (o) => `<span class="mono-s">${esc(o.__product.code || '—')}</span>`,
+                  },
+                  { title: '产品', sortKey: 'product', render: (o) => esc(o.__product.name || o.productId) },
+                  { title: '数量', cls: 'num', sortKey: 'qty', render: (o) => num(o.qty) },
+                  { title: '人工优先级', sortKey: 'priority', render: (o) => `P${o.manualPriority || 3}` },
+                  { title: '客户交期', cls: 'mono', sortKey: 'due', render: (o) => esc(dueDateOf(db, o) || '—') },
+                  { title: '计划起止', cls: 'mono', sortKey: 'start', render: (o) => `${esc(o.planStart || '—')}<br/>${esc(o.planEnd || '—')}` },
+                  { title: '预计完工', cls: 'mono', sortKey: 'finish', render: (o) => esc(o.__finish || '—') },
+                  { title: '状态', sortKey: 'status', render: (o) => badge(label(ORDER_STATUS, o.status), o.status === 'COMPLETED' ? 'ok' : o.status === 'IN_PROGRESS' ? 'info' : 'muted') },
                   {
                     title: '齐套',
                     render: (o) => {
@@ -100,7 +139,7 @@ export default {
                   },
                 ],
                 poRows,
-                { empty: '没有符合条件的生产订单。可从「销售订单」页为订单行建立生产订单。' }
+                { empty: '没有符合条件的生产订单。可从「销售订单」页为订单行建立生产订单。', sort }
               )
             : table(
                 [
@@ -129,10 +168,14 @@ export default {
                       const lines = db.salesOrderLines.filter((l) => l.salesOrderId === s.id);
                       return lines
                         .map((l) => {
-                          const pos = db.orderLinks.filter((k) => k.lineId === l.id).map((k) => k.orderId);
+                          const pos = ordersOfLine(db, l.id);
                           return `<div class="rowline" style="padding:3px 0">
                             <span class="mono-s">${esc(l.id)}</span>
-                            <span class="r">${pos.length ? pos.map((p) => badge(p, 'info')).join(' ') : `<button class="btn sm" data-mk="${l.id}">建立生产订单</button>`}</span>
+                            <span class="r">${
+                              pos.length
+                                ? pos.map((o) => `<span class="badge info" title="${esc(o.status)}">${esc(o.code)}</span>`).join(' ')
+                                : `<button class="btn sm" data-mk="${l.id}">建立生产订单</button>`
+                            }</span>
                           </div>`;
                         })
                         .join('');
@@ -176,6 +219,14 @@ export default {
     );
     view.querySelectorAll('[data-mk]').forEach((b) =>
       b.addEventListener('click', () => makeOrder(ctx, b.dataset.mk))
+    );
+    bindSort(
+      view,
+      () => sort,
+      (s) => {
+        sort = s;
+      },
+      () => ctx.redraw()
     );
   },
 };

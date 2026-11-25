@@ -3,12 +3,12 @@
  * 自动排产（三策略 + 可解释评分）、计划表格、甘特图、调整辅助面板、硬/软约束检查
  */
 
-import { badge, esc, modal, num, table, toast, options, bar } from '../dom.js';
+import { badge, esc, modal, num, table, toast, options, bar, sortRows, bindSort } from '../dom.js';
 import { STRATEGIES, HARD_CONSTRAINTS, SOFT_CONSTRAINTS, label } from '../../core/constants.js';
 import { runSchedule, replanTask, scoreOrder, committedUtilization } from '../../core/scheduler.js';
 import { checkConstraints, hasHard } from '../../core/constraints.js';
 import { capacityFor, candidateCenters, routingOpsOf } from '../../core/rules.js';
-import { addDays, diffCalendarDays, isWorkday } from '../../core/calendar.js';
+import { addDays, diffCalendarDays, isWorkday, today } from '../../core/calendar.js';
 import { isTaskFrozen } from '../../core/freeze.js';
 
 let state = {
@@ -18,26 +18,69 @@ let state = {
   selectedTask: '',
   lastScores: [],
   lastWarnings: [],
+  /** 计划表格筛选条件 */
+  filter: { order: '', op: '', wc: '', status: '', from: '', to: '' },
+  /** 计划表格排序 */
+  sort: { key: 'order', dir: 'asc' },
+  /** 当日计划查询日期 */
+  dayQuery: '',
 };
+
+/** 计划表格的排序取值：把行拍平成可比较的字段 */
+function taskSortValue(r, key) {
+  const t = r.t;
+  switch (key) {
+    case 'order': return (r.o ? r.o.code : '') || '';
+    case 'seq': return r.t.seq;
+    case 'op': return r.t.opName || '';
+    case 'wc': return (r.wc || {}).name || '';
+    case 'qty': return Number(t.planQty) || 0;
+    case 'start': return t.startDate || '';
+    case 'end': return t.endDate || '';
+    case 'days': return (t.dailyPlan || []).length;
+    case 'status': return t.status || '';
+    default: return '';
+  }
+}
+
+const TASK_STATUS_LABEL = { COMPLETED: '已完成', IN_PROGRESS: '进行中', PLANNED: '已计划', CANCELLED: '已取消' };
 
 export default {
   render(view, ctx) {
     const { db } = ctx;
     const versionId = db.activeVersionId;
-    const tasks = db.tasks.filter((t) => t.versionId === versionId).sort((a, b) => {
-      if (a.orderId !== b.orderId) return a.orderId.localeCompare(b.orderId);
-      return a.seq - b.seq;
-    });
-    const violations = checkConstraints(tasks, db, db.settings);
+    const allTasks = db.tasks.filter((t) => t.versionId === versionId);
+    const violations = checkConstraints(allTasks, db, db.settings);
     const hard = violations.filter((v) => v.level === 'HARD');
     const soft = violations.filter((v) => v.level === 'SOFT');
     const strategy = STRATEGIES[state.strategy];
 
     const schedulable = db.productionOrders.filter((o) => ['DRAFT', 'SCHEDULED', 'RELEASED'].includes(o.status));
     const orderMap = Object.fromEntries(db.productionOrders.map((o) => [o.id, o]));
+    const wcMap = Object.fromEntries(db.workCenters.map((w) => [w.id, w]));
 
-    if (!state.selectedTask && tasks.length) state.selectedTask = tasks[0].id;
-    const selTask = tasks.find((t) => t.id === state.selectedTask) || null;
+    // 过滤 + 排序（只影响"看"，不影响约束检查：检查永远针对全量计划）
+    const f = state.filter;
+    const filtered = allTasks
+      .filter((t) => !f.order || t.orderId === f.order)
+      .filter((t) => !f.op || t.opName === f.op)
+      .filter((t) => !f.wc || t.workCenterId === f.wc)
+      .filter((t) => !f.status || t.status === f.status)
+      .filter((t) => (!f.from || t.endDate >= f.from) && (!f.to || t.startDate <= f.to));
+    const rows = sortRows(
+      filtered.map((t) => ({ t, o: orderMap[t.orderId], wc: wcMap[t.workCenterId] })),
+      state.sort,
+      taskSortValue
+    );
+
+    if (!state.selectedTask && rows.length) state.selectedTask = rows[0].t.id;
+    const selTask = db.tasks.find((t) => t.id === state.selectedTask) || null;
+
+    const filterActive = Object.values(f).some(Boolean);
+    const dayDate = state.dayQuery || ctx.asOf;
+    const dayRows = allTasks
+      .flatMap((t) => (t.dailyPlan || []).filter((d) => d.date === dayDate).map((d) => ({ t, d, o: orderMap[t.orderId], wc: wcMap[t.workCenterId] })))
+      .sort((a, b) => (a.t.startDate < b.t.startDate ? -1 : 1));
 
     view.innerHTML = `
       <div class="card">
@@ -109,8 +152,69 @@ export default {
                 <button class="btn sm ${state.show === 'gantt' ? 'primary' : ''}" data-show="gantt">甘特图</button>
               </div>
             </div>
+            ${
+              state.show === 'table'
+                ? `<div class="toolbar" style="border-bottom:1px solid var(--line)">
+                    <span class="small">筛选：</span>
+                    <select id="f-order" style="width:150px"><option value="">全部订单</option>${[...new Set(allTasks.map((t) => t.orderId))]
+                      .map((id) => orderMap[id])
+                      .filter(Boolean)
+                      .sort((a, b) => a.code.localeCompare(b.code))
+                      .map((o) => `<option value="${o.id}" ${o.id === f.order ? 'selected' : ''}>${esc(o.code)}</option>`)
+                      .join('')}</select>
+                    <select id="f-op" style="width:130px"><option value="">全部工序</option>${[...new Set(allTasks.map((t) => t.opName))]
+                      .sort()
+                      .map((n) => `<option value="${esc(n)}" ${n === f.op ? 'selected' : ''}>${esc(n)}</option>`)
+                      .join('')}</select>
+                    <select id="f-wc" style="width:140px"><option value="">全部工作中心</option>${db.workCenters
+                      .map((w) => `<option value="${w.id}" ${w.id === f.wc ? 'selected' : ''}>${esc(w.name)}</option>`)
+                      .join('')}</select>
+                    <select id="f-status" style="width:120px"><option value="">全部状态</option>${Object.entries(TASK_STATUS_LABEL)
+                      .filter(([k]) => k !== 'CANCELLED')
+                      .map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v}</option>`)
+                      .join('')}</select>
+                    <span class="small">日期</span>
+                    <input type="date" id="f-from" value="${esc(f.from)}" style="width:140px" title="结束日不早于" />
+                    <span class="small">~</span>
+                    <input type="date" id="f-to" value="${esc(f.to)}" style="width:140px" title="开始日不晚于" />
+                    <button class="btn sm ghost" data-act="filter-reset" ${filterActive ? '' : 'disabled'}>重置</button>
+                    <span class="spacer"></span>
+                    <span class="small muted">显示 ${rows.length} / ${allTasks.length} 条</span>
+                  </div>`
+                : ''
+            }
             <div class="card-b tight">
-              ${state.show === 'table' ? renderTable(db, tasks, orderMap) : renderGantt(db, tasks, orderMap)}
+              ${state.show === 'table' ? renderTable(rows) : renderGantt(db, allTasks, orderMap)}
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h">
+              <h3>当日计划查询</h3>
+              <span class="desc">按日期查看当天要做什么：工序、工作中心、当日数量</span>
+              <div class="right">
+                <input type="date" id="day-date" value="${esc(dayDate)}" style="width:150px" />
+                <button class="btn sm ghost" data-act="day-today">今天</button>
+              </div>
+            </div>
+            <div class="card-b tight">
+              <div class="inline" style="padding:0 2px 8px">
+                <b>${esc(dayDate)}</b>
+                <span class="small muted">${dayRows.length} 道工序 · 合计 ${dayRows.reduce((s, r) => s + num(r.d.qty), 0)} 件</span>
+              </div>
+              ${table(
+                [
+                  { title: '订单', render: (r) => `<b>${esc(r.o ? r.o.code : '')}</b>` },
+                  { title: '序', cls: 'mono', render: (r) => r.t.seq },
+                  { title: '工序', render: (r) => esc(r.t.opName) },
+                  { title: '工作中心', render: (r) => esc(r.wc ? r.wc.name : '—') },
+                  { title: '当日数量', cls: 'num', render: (r) => num(r.d.qty) },
+                  { title: '计划区间', cls: 'mono', render: (r) => `${esc(r.t.startDate)} → ${esc(r.t.endDate)}` },
+                  { title: '状态', render: (r) => badge(TASK_STATUS_LABEL[r.t.status] || r.t.status, r.t.status === 'COMPLETED' ? 'ok' : r.t.status === 'IN_PROGRESS' ? 'info' : 'muted') },
+                ],
+                dayRows,
+                { empty: '该日期没有排产任务（可能是非工作日，或计划尚未覆盖该日）' }
+              )}
             </div>
           </div>
 
@@ -133,10 +237,11 @@ export default {
                 { empty: '当前计划未发现约束违规' }
               )}
             </div>
+            ${constraintGuideHtml(hard, soft)}
           </div>
         </div>
 
-        <div class="side-panel">${renderAdjustPanel(ctx, selTask, tasks, orderMap)}</div>
+        <div class="side-panel">${renderAdjustPanel(ctx, selTask, allTasks, orderMap)}</div>
       </div>`;
 
     /* ── 事件 ── */
@@ -168,31 +273,105 @@ export default {
     view.querySelectorAll('[data-apply-center]').forEach((b) =>
       b.addEventListener('click', () => applyCenter(ctx, b.dataset.applyCenter, b.dataset.wc))
     );
+
+    /* 计划表格筛选 */
+    const bindFilter = (id, key) => {
+      const el = view.querySelector(id);
+      if (el)
+        el.addEventListener('change', () => {
+          state.filter[key] = el.value;
+          ctx.redraw();
+        });
+    };
+    bindFilter('#f-order', 'order');
+    bindFilter('#f-op', 'op');
+    bindFilter('#f-wc', 'wc');
+    bindFilter('#f-status', 'status');
+    bindFilter('#f-from', 'from');
+    bindFilter('#f-to', 'to');
+    const resetBtn = view.querySelector('[data-act="filter-reset"]');
+    if (resetBtn)
+      resetBtn.addEventListener('click', () => {
+        state.filter = { order: '', op: '', wc: '', status: '', from: '', to: '' };
+        ctx.redraw();
+      });
+
+    /* 当日计划查询 */
+    const dayInput = view.querySelector('#day-date');
+    if (dayInput)
+      dayInput.addEventListener('change', () => {
+        state.dayQuery = dayInput.value;
+        ctx.redraw();
+      });
+    const dayToday = view.querySelector('[data-act="day-today"]');
+    if (dayToday)
+      dayToday.addEventListener('click', () => {
+        state.dayQuery = today();
+        ctx.redraw();
+      });
+
+    bindSort(
+      view,
+      () => state.sort,
+      (s) => {
+        state.sort = s;
+      },
+      () => ctx.redraw()
+    );
   },
 };
 
+/** 约束规则说明：把"为什么报、怎么改"讲清楚，而不是只给编号 */
+function constraintGuideHtml(hard, soft) {
+  const countOf = (code) => [...hard, ...soft].filter((v) => v.code === code).length;
+  const row = (c, level) => `
+    <tr>
+      <td class="mono">${esc(c.code)}</td>
+      <td>${badge(level === 'HARD' ? '硬' : '软', level === 'HARD' ? 'danger' : 'warn')}</td>
+      <td><b>${esc(c.name)}</b><div class="small muted">${esc(c.desc)}</div></td>
+      <td class="small">${esc(c.basis || '')}</td>
+      <td class="small">${esc(c.effect || '')}</td>
+      <td class="small muted">${esc(c.fix || '')}</td>
+      <td class="num">${countOf(c.code) || '<span class="muted">0</span>'}</td>
+    </tr>`;
+  return `
+    <details class="card-b" style="border-top:1px solid var(--line)">
+      <summary style="cursor:pointer;font-size:12.5px;font-weight:600">
+        约束规则说明（HC-01~05 / SC-01~05 判定口径、影响与处理位置）
+      </summary>
+      <div class="small muted" style="margin:8px 0 10px">
+        硬约束（HC）违反时「确认计划」被禁用，必须调到不违反为止；软约束（SC）只提示风险，允许保存。
+        下表最后一列是当前计划命中该规则的条数，点编号列可对照上表定位具体对象。
+      </div>
+      <div class="table-wrap" style="max-height:none">
+        <table class="tb" style="font-size:12px">
+          <thead><tr>
+            <th>编号</th><th>级别</th><th>规则</th><th>判定口径</th><th>命中后的影响</th><th>怎么改</th><th class="num">命中</th>
+          </tr></thead>
+          <tbody>
+            ${HARD_CONSTRAINTS.map((c) => row(c, 'HARD')).join('')}
+            ${SOFT_CONSTRAINTS.map((c) => row(c, 'SOFT')).join('')}
+          </tbody>
+        </table>
+      </div>
+    </details>`;
+}
+
 /* ───────── 计划表格 ───────── */
-function renderTable(db, tasks, orderMap) {
-  const rows = tasks.map((t) => ({ t, o: orderMap[t.orderId] }));
+function renderTable(rows) {
   return table(
     [
-      { title: '订单', render: (r) => `<b>${esc(r.o ? r.o.code : '')}</b>` },
-      { title: '序', cls: 'mono', render: (r) => r.t.seq },
-      { title: '工序', render: (r) => esc(r.t.opName) },
-      {
-        title: '工作中心',
-        render: (r) => esc((db.workCenters.find((w) => w.id === r.t.workCenterId) || {}).name || '—'),
-      },
-      { title: '数量', cls: 'num', render: (r) => num(r.t.planQty) },
-      { title: '开始', cls: 'mono', render: (r) => esc(r.t.startDate) },
-      { title: '结束', cls: 'mono', render: (r) => esc(r.t.endDate) },
-      {
-        title: '工作日',
-        cls: 'num',
-        render: (r) => (r.t.dailyPlan || []).length,
-      },
+      { title: '订单', sortKey: 'order', render: (r) => `<b>${esc(r.o ? r.o.code : '')}</b>` },
+      { title: '序', cls: 'mono', sortKey: 'seq', render: (r) => r.t.seq },
+      { title: '工序', sortKey: 'op', render: (r) => esc(r.t.opName) },
+      { title: '工作中心', sortKey: 'wc', render: (r) => esc(r.wc ? r.wc.name : '—') },
+      { title: '数量', cls: 'num', sortKey: 'qty', render: (r) => num(r.t.planQty) },
+      { title: '开始', cls: 'mono', sortKey: 'start', render: (r) => esc(r.t.startDate) },
+      { title: '结束', cls: 'mono', sortKey: 'end', render: (r) => esc(r.t.endDate) },
+      { title: '工作日', cls: 'num', sortKey: 'days', render: (r) => (r.t.dailyPlan || []).length },
       {
         title: '状态',
+        sortKey: 'status',
         render: (r) =>
           badge(
             r.t.status === 'COMPLETED' ? '已完成' : r.t.status === 'IN_PROGRESS' ? '进行中' : '已计划',
@@ -207,7 +386,7 @@ function renderTable(db, tasks, orderMap) {
       },
     ],
     rows,
-    { empty: '尚无排产任务。请点击「执行自动排产」。' }
+    { empty: '没有符合条件的工序任务（可重置筛选，或点击「执行自动排产」）', sort: state.sort }
   );
 }
 

@@ -26,6 +26,6 @@ jobs:
       - name: 语法门禁
         run: node app/tests/check-syntax.mjs
 
-      - name: 自动化校验（31 项算法 + 50 项导入导出 + 42 项数据集导入 + 63 项 Excel/CSV 批量导入）
+      - name: 自动化校验（31 项算法 + 50 项导入导出 + 42 项数据集导入 + 63 项 Excel/CSV 批量导入 + 34 项业务规则回归）
         working-directory: app
         run: npm test
