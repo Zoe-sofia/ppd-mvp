@@ -49,6 +49,8 @@
   --ctl-h-sm: 24px;           /* 工具栏 / 行内小控件统一高度 */
   --w-filter: 148px;          /* 筛选下拉统一宽度 */
   --w-filter-lg: 200px;       /* 需要放下长名称的筛选框（产品、订单） */
+  --topbar-h: 52px;           /* 顶栏高度，吸附定位要减掉 */
+  --side-w: 320px;            /* 主＋侧两栏布局的侧栏宽度 */
 }
 
 * { box-sizing: border-box; }
@@ -192,12 +194,20 @@ table.tb tbody tr.sel { background: var(--brand-weak); }
 table.tb .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12px; }
 table.tb .mono { font-family: var(--mono); font-size: 12px; }
 table.tb .nowrap { white-space: nowrap; }
+/* 高密度数据表（排程计划表）：列宽按内容走，绝不压缩到折行；
+   容器装不下时横向滚动，而不是把"机械加工"切成"机械加/工" */
+table.tb.dense { width: max-content; min-width: 100%; }
+table.tb.dense thead th, table.tb.dense tbody td { white-space: nowrap; }
+table.tb.dense tbody tr { cursor: pointer; }
+/* 日期列给固定宽度：它内容最长，放开拉伸会把其余列挤到两边 */
+table.tb.dense .col-date { width: 152px; }
 table.tb .muted { color: var(--sub); }
 /* 可排序表头：⇅ 未排序 / ▲ 升序 / ▼ 降序，第三次点击取消 */
 table.tb thead th.sortable { cursor: pointer; user-select: none; }
 table.tb thead th.sortable:hover { background: #eef3fa; color: var(--text); }
 table.tb thead th.sortable:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-table.tb thead th.sortable .sort-ind { margin-left: 4px; font-size: 9px; color: #b4c0cf; }
+table.tb thead th.sortable .sort-ind { margin-left: 3px; font-size: 8px; color: #b4c0cf; opacity: .6; }
+table.tb thead th.sortable:hover .sort-ind, table.tb thead th.sorted .sort-ind { opacity: 1; color: var(--brand); }
 table.tb thead th.sortable.sorted { color: var(--brand); }
 table.tb thead th.sortable.sorted .sort-ind { color: var(--brand); }
 .empty { padding: var(--sp-8) var(--pad-card-x); text-align: center; color: var(--sub); font-size: 12.5px; line-height: 1.7; }
@@ -251,6 +261,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #c7d8ff; outline-
 .inline { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .inline > * { flex: none; }
 .inline .grow { flex: 1; min-width: 0; }
+.inline .spacer { flex: 1 1 auto; min-width: 0; }
+/* 按钮组与状态徽标之间的硬分隔：比 gap 更明确，也不靠 spacer 撑到最右 */
+.inline .sep { width: 1px; height: 16px; background: var(--line-strong); flex: none; margin: 0 var(--sp-2); }
+/* 状态徽标成组：窄屏换行时整体落到下一行，不会"硬约束"留在上面、"软约束"掉到下面 */
+.badge-group { display: inline-flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
 /* 工具栏：所有控件（下拉、日期、按钮）统一到 --ctl-h-sm，混排时基线一致 */
 .toolbar {
   display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); align-items: center;
@@ -265,6 +280,31 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #c7d8ff; outline-
 .filter-lg { width: var(--w-filter-lg); }
 .toolbar .lab { font-size: 11.5px; color: var(--sub); white-space: nowrap; }
 .toolbar .sep { width: 1px; height: 16px; background: var(--line); flex: none; }
+
+/* 筛选条：按 124px 一档自动排成等宽网格。
+   六个控件在窄栏里折成两行时，每行的左右边界仍然对齐；
+   不再出现"前面挤成一坨、最后只剩一个计数孤零零挂在右边" */
+.filterbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+  align-items: center;
+  padding: var(--sp-3) var(--pad-card-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.filterbar select,
+.filterbar input[type=date] { width: 100%; height: var(--ctl-h-sm); padding: 0 var(--sp-2); font-size: 12px; }
+.filterbar .filter-group {
+  grid-column: span 2;
+  display: grid;
+  grid-template-columns: auto minmax(0,1fr) auto minmax(0,1fr);
+  gap: var(--sp-2);
+  align-items: center;
+}
+.filterbar .filter-group input[type=date] { width: 100%; }
+.filterbar .btn { height: var(--ctl-h-sm); padding: 0 var(--sp-3); font-size: 12px; justify-self: start; }
+.filterbar .count { justify-self: end; white-space: nowrap; }
 
 /* ───────── 页签 ───────── */
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 var(--pad-card-x); background: var(--panel); overflow-x: auto; }
@@ -319,6 +359,48 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #c7d8ff; outline-
 .toast.warn { background: #92400e; }
 
 /* ───────── 其它 ───────── */
+/* ───────── 侧栏参数清单 / 候选列表 ───────── */
+/* 标签靠左、值靠右，一行一条虚线。侧栏只有 320px，
+   做成"标签定宽 + 值"的两列网格会把日期挤成两行 */
+.fact-list { display: flex; flex-direction: column; }
+.fact {
+  display: flex; align-items: baseline; gap: var(--sp-4);
+  padding: var(--sp-2) 0; border-bottom: 1px dashed var(--line);
+  font-size: 12.5px;
+}
+.fact:first-child { padding-top: 0; }
+.fact:last-child { border-bottom: 0; padding-bottom: 0; }
+.fact .f-k { color: var(--sub); flex: none; }
+.fact .f-v { margin-left: auto; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* 候选工作中心：一条两行（名称+徽标 / 产能+负荷+改派），
+   比三列表格在窄栏里宽松，按钮也不再和进度条抢宽度 */
+.cand-list { display: flex; flex-direction: column; }
+.cand { padding: var(--sp-3) var(--pad-card-x); border-bottom: 1px solid #edf1f6; }
+.cand:last-child { border-bottom: 0; }
+.cand.is-current { background: #f8fbff; }
+.cand-top { display: flex; align-items: center; gap: var(--sp-2); }
+.cand-top b { font-size: 12.5px; }
+.cand-bot { display: grid; grid-template-columns: auto minmax(40px,1fr) auto; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); }
+.cand-bot .bar-w-sm { max-width: 132px; }
+.cand-bot .btn { height: var(--ctl-h-sm); }
+
+/* 卡片内的小节标题（同一张卡里的第二段内容） */
+.sec-head {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: var(--sp-3) var(--pad-card-x);
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 12.5px; font-weight: 600;
+}
+/* 卡片底部操作区：用一条线把说明与按钮和内容分开，不悬在半空 */
+.card-f {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--sp-4) var(--pad-card-x);
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
 .kv { display: grid; grid-template-columns: 120px minmax(0,1fr); gap: var(--sp-2) var(--sp-5); font-size: 12.5px; }
 .kv dt { color: var(--sub); }
 .kv dd { margin: 0; }
@@ -326,8 +408,18 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #c7d8ff; outline-
 .bar-mini > i { display: block; height: 100%; background: var(--brand); }
 .bar-mini.warn > i { background: #d97706; }
 .bar-mini.danger > i { background: var(--danger); }
-.split { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: var(--gutter); align-items: start; margin-bottom: var(--gutter); }
+.split { display: grid; grid-template-columns: minmax(0,1fr) var(--side-w); gap: var(--gutter); align-items: start; margin-bottom: var(--gutter); }
 .split:last-child { margin-bottom: 0; }
+/* 侧栏跟随滚动：左栏比右栏长得多时，右下角不再留一大片空白 */
+.side-panel {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--sp-4));
+  align-self: start;
+  max-height: calc(100dvh - var(--topbar-h) - var(--sp-6));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
 .side-panel .card:last-child { margin-bottom: 0; }
 .mono-s { font-family: var(--mono); font-size: 11.5px; }
 .flexcol { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -336,6 +428,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #c7d8ff; outline-
 .rowline:last-child { border-bottom: 0; padding-bottom: 0; }
 .rowline .r { margin-left: auto; font-family: var(--mono); white-space: nowrap; }
 .pill-list { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+/* 与同一行的下拉框基线对齐：tag 行不撑高、也不塌陷 */
+.field .pill-list { min-height: var(--ctl-h); align-items: center; }
 .hr { height: 1px; background: var(--line); margin: var(--sp-5) 0; }
 .small { font-size: 11.5px; color: var(--sub); }
 .right { text-align: right; }
@@ -438,9 +532,12 @@ th[data-sort]:focus-visible,
   .g4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 
-@media (max-width: 1100px) {
+/* 两栏在 1240 以下并作单栏：再窄左栏装不下数据表的列，
+   表格会被压到每个单元格都折行（"PO-\n001""2026-\n11-11"） */
+@media (max-width: 1240px) {
   .split { grid-template-columns: minmax(0,1fr); }
   .g3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .side-panel { position: static; max-height: none; overflow: visible; }
 }
 
 /* ── 平板 / 窄窗口：侧栏从左侧竖条变为顶部横条 ── */
@@ -530,6 +627,13 @@ th[data-sort]:focus-visible,
   .toolbar .btn, .toolbar .btn.sm { flex: 0 0 auto; }
   .toolbar .sep { display: none; }
 
+  .inline .sep { display: none; }
+
+  /* 筛选条在手机上两列：日期组仍占满一行，重置与计数各占一格 */
+  .filterbar { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .filterbar .filter-group { grid-column: span 2; }
+  .filterbar .count { justify-self: end; }
+
   input[type=text], input[type=number], input[type=date], input[type=search], select, textarea { font-size: 16px; }
   .toolbar select, .toolbar input[type=text], .toolbar input[type=number],
   .toolbar input[type=date], .toolbar input[type=search] { font-size: 16px; }
@@ -540,6 +644,8 @@ th[data-sort]:focus-visible,
 
   .table-wrap { max-height: 68vh; }
   table.tb { font-size: 12px; }
+  /* 表格里的按钮不参与行高竞争，否则 131 行每行都被撑到 43px */
+  table.tb tbody td .btn { height: auto; padding: var(--sp-1) var(--sp-2); line-height: 1.5; }
   table.tb thead th { padding: var(--sp-2) var(--sp-3); }
   table.tb tbody td { padding: var(--sp-2) var(--sp-3); }
   table.tb thead th:first-child, table.tb tbody td:first-child { padding-left: var(--pad-card-x); }

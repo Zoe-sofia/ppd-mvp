@@ -26,7 +26,8 @@ export const bar = (ratio, tone = '') => {
 /**
  * 表格渲染
  * columns: [{ key, title, cls, render(row), sortKey }]
- * opts: { empty, rowAttr, sort }
+ * opts: { empty, rowAttr, sort, cls }
+ *   cls 追加到 <table>，页面用它切换表格密度（如 'dense' = 列宽按内容、不折行）
  *
  * 排序约定：列上声明 sortKey 即视为可排序，表头出现 ⇅ / ▲ / ▼；
  * 具体排序在页面里用 sortRows() 完成后再传给本函数（保持 table 是纯渲染）。
@@ -54,7 +55,7 @@ export function table(columns, rows, opts = {}) {
       return `<tr data-idx="${i}" ${opts.rowAttr ? opts.rowAttr(r, i) : ''}>${tds}</tr>`;
     })
     .join('');
-  return `<div class="table-wrap"><table class="tb"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="tb${opts.cls ? ' ' + opts.cls : ''}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 /* ───────── 排序 ───────── */

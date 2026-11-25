@@ -111,7 +111,7 @@ export default {
             </div>
             <div class="field">
               <label>权重配置（静态，可解释）</label>
-              <div class="pill-list mt-1">
+              <div class="pill-list">
                 ${Object.entries(strategy.weights)
                   .map(([k, v]) => `<span class="tag">${k === 'DELIVERY' ? '交期' : k === 'MATERIAL' ? '物料' : '产能'} ${v}%</span>`)
                   .join('')}
@@ -122,13 +122,15 @@ export default {
           <div class="inline wrap">
             <button class="btn primary" data-act="run">执行自动排产</button>
             <button class="btn" data-act="confirm">确认计划</button>
-            <span class="spacer"></span>
-            ${
-              hard.length
-                ? `<span class="badge danger">硬约束 ${hard.length} 处 · 不可确认</span>`
-                : `<span class="badge ok">硬约束通过</span>`
-            }
-            <span class="badge ${soft.length ? 'warn' : 'muted'}">软约束 ${soft.length} 处</span>
+            <span class="badge-group">
+              <span class="sep"></span>
+              ${
+                hard.length
+                  ? `<span class="badge danger">硬约束 ${hard.length} 处 · 不可确认</span>`
+                  : `<span class="badge ok">硬约束通过</span>`
+              }
+              <span class="badge ${soft.length ? 'warn' : 'muted'}">软约束 ${soft.length} 处</span>
+            </span>
           </div>
           ${
             state.lastWarnings.length
@@ -154,34 +156,32 @@ export default {
             </div>
             ${
               state.show === 'table'
-                ? `<div class="toolbar divider-bottom">
-                    <span class="small">筛选：</span>
-                    <select class="filter" id="f-order" ><option value="">全部订单</option>${[...new Set(allTasks.map((t) => t.orderId))]
+                ? `<div class="filterbar">
+                    <select id="f-order" title="按生产订单筛选"><option value="">全部订单</option>${[...new Set(allTasks.map((t) => t.orderId))]
                       .map((id) => orderMap[id])
                       .filter(Boolean)
                       .sort((a, b) => a.code.localeCompare(b.code))
                       .map((o) => `<option value="${o.id}" ${o.id === f.order ? 'selected' : ''}>${esc(o.code)}</option>`)
                       .join('')}</select>
-                    <select class="filter" id="f-op" ><option value="">全部工序</option>${[...new Set(allTasks.map((t) => t.opName))]
+                    <select id="f-op" title="按工序名称筛选"><option value="">全部工序</option>${[...new Set(allTasks.map((t) => t.opName))]
                       .sort()
                       .map((n) => `<option value="${esc(n)}" ${n === f.op ? 'selected' : ''}>${esc(n)}</option>`)
                       .join('')}</select>
-                    <select class="filter" id="f-wc" ><option value="">全部工作中心</option>${db.workCenters
+                    <select id="f-wc" title="按工作中心筛选"><option value="">全部工作中心</option>${db.workCenters
                       .map((w) => `<option value="${w.id}" ${w.id === f.wc ? 'selected' : ''}>${esc(w.name)}</option>`)
                       .join('')}</select>
-                    <select class="filter" id="f-status" ><option value="">全部状态</option>${Object.entries(TASK_STATUS_LABEL)
+                    <select id="f-status" title="按任务状态筛选"><option value="">全部状态</option>${Object.entries(TASK_STATUS_LABEL)
                       .filter(([k]) => k !== 'CANCELLED')
                       .map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v}</option>`)
                       .join('')}</select>
                     <span class="filter-group">
                       <span class="small">日期</span>
-                      <input class="filter" type="date" id="f-from" value="${esc(f.from)}"  title="结束日不早于" />
+                      <input type="date" id="f-from" value="${esc(f.from)}" title="结束日不早于" />
                       <span class="small">~</span>
-                      <input class="filter" type="date" id="f-to" value="${esc(f.to)}"  title="开始日不晚于" />
+                      <input type="date" id="f-to" value="${esc(f.to)}" title="开始日不晚于" />
                     </span>
-                    <button class="btn sm ghost" data-act="filter-reset" ${filterActive ? '' : 'disabled'}>重置</button>
-                    <span class="spacer"></span>
-                    <span class="small muted count">显示 ${rows.length} / ${allTasks.length} 条</span>
+                    <button class="btn ghost" data-act="filter-reset" ${filterActive ? '' : 'disabled'}>重置</button>
+                    <span class="small muted count">共 ${rows.length} / ${allTasks.length} 条</span>
                   </div>`
                 : ''
             }
@@ -312,6 +312,16 @@ export default {
         ctx.redraw();
       });
 
+    /* 点行即选中：右栏随之切换（表格里因此省掉"选中"这一列按钮） */
+    view.querySelectorAll('table.tb.dense tbody tr[data-row]').forEach((tr) =>
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        if (state.selectedTask === tr.dataset.row) return;
+        state.selectedTask = tr.dataset.row;
+        ctx.redraw();
+      })
+    );
+
     bindSort(
       view,
       () => state.sort,
@@ -360,6 +370,19 @@ function constraintGuideHtml(hard, soft) {
 }
 
 /* ───────── 计划表格 ───────── */
+/**
+ * 计划区间：同年只写一次年份（11-11 → 11-12），跨年补全；
+ * 悬停给出完整日期。十列挤在八百多像素里，日期占两列是最费宽度的。
+ */
+function dateSpan(a, b) {
+  if (!a && !b) return '—';
+  /* 每行都以完整日期开头，纵向扫视时年月对齐；终点同年省年，跨年补全 */
+  if (!b || a === b) return `<span title="${esc(a || b)}">${esc(a || b)}</span>`;
+  const sameYear = a.slice(0, 4) === b.slice(0, 4);
+  const text = `${a} → ${sameYear ? b.slice(5) : b}`;
+  return `<span title="${esc(a)} → ${esc(b)}">${esc(text)}</span>`;
+}
+
 function renderTable(rows) {
   return table(
     [
@@ -368,9 +391,8 @@ function renderTable(rows) {
       { title: '工序', sortKey: 'op', render: (r) => esc(r.t.opName) },
       { title: '工作中心', sortKey: 'wc', render: (r) => esc(r.wc ? r.wc.name : '—') },
       { title: '数量', cls: 'num', sortKey: 'qty', render: (r) => num(r.t.planQty) },
-      { title: '开始', cls: 'mono', sortKey: 'start', render: (r) => esc(r.t.startDate) },
-      { title: '结束', cls: 'mono', sortKey: 'end', render: (r) => esc(r.t.endDate) },
-      { title: '工作日', cls: 'num', sortKey: 'days', render: (r) => (r.t.dailyPlan || []).length },
+      { title: '计划区间', cls: 'mono col-date', sortKey: 'start', render: (r) => dateSpan(r.t.startDate, r.t.endDate) },
+      { title: '天数', cls: 'num', sortKey: 'days', render: (r) => (r.t.dailyPlan || []).length },
       {
         title: '状态',
         sortKey: 'status',
@@ -380,15 +402,15 @@ function renderTable(rows) {
             r.t.status === 'COMPLETED' ? 'ok' : r.t.status === 'IN_PROGRESS' ? 'info' : 'muted'
           ),
       },
-      {
-        title: '',
-        cls: 'nowrap',
-        render: (r) =>
-          `<button class="btn sm ghost" data-task="${r.t.id}">选中</button><button class="btn sm ghost" data-edit="${r.t.id}">调整</button>`,
-      },
+      { title: '', cls: 'nowrap', render: (r) => `<button class="btn sm ghost" data-edit="${r.t.id}">调整</button>` },
     ],
     rows,
-    { empty: '没有符合条件的工序任务（可重置筛选，或点击「执行自动排产」）', sort: state.sort }
+    {
+      empty: '没有符合条件的工序任务（可重置筛选，或点击「执行自动排产」）',
+      sort: state.sort,
+      cls: 'dense',
+      rowAttr: (r) => `${r.t.id === state.selectedTask ? 'class="sel"' : ''} data-row="${r.t.id}"`,
+    }
   );
 }
 
@@ -459,7 +481,7 @@ function renderGantt(db, tasks, orderMap) {
 
 /* ───────── 调整辅助面板 ───────── */
 function renderAdjustPanel(ctx, t, tasks, orderMap) {
-  if (!t) return '<div class="card"><div class="card-b"><div class="empty">选中一条工序任务后可查看替代工作中心与产能情况</div></div></div>';
+  if (!t) return '<div class="card"><div class="card-b"><div class="empty">点选左侧任一工序，这里显示它的工作中心与产能备选</div></div></div>';
   const { db } = ctx;
   const o = orderMap[t.orderId];
   const op = (db.routingOps || []).find((x) => x.id === t.opId) || { stdHoursPerUnit: t.stdHoursPerUnit || 1 };
@@ -471,50 +493,48 @@ function renderAdjustPanel(ctx, t, tasks, orderMap) {
     loadByCenterDate[`${x.workCenterId}|${d.date}`] = (loadByCenterDate[`${x.workCenterId}|${d.date}`] || 0) + d.qty;
   }
 
+  /* 一张卡分成三段（参数 / 候选 / 操作），而不是三张各自带标题的小卡：
+     三张卡在 320px 栏里只剩碎片，底部还要再空出一块 */
   return `
     <div class="card">
-      <div class="card-h"><h3>调整辅助</h3><span class="desc">${esc(o ? o.code : '')} · ${esc(t.opName)}</span></div>
-      <div class="card-b">
-        <dl class="kv">
-          <dt>当前工作中心</dt><dd>${esc(wc ? wc.name : '—')}</dd>
-          <dt>计划日期</dt><dd class="mono-s">${esc(t.startDate)} → ${esc(t.endDate)}</dd>
-          <dt>计划数量</dt><dd>${num(t.planQty)} 件</dd>
-          <dt>日产能</dt><dd>${num(capacityFor(wc, op))} 件/日</dd>
-        </dl>
+      <div class="card-h">
+        <h3>调整辅助</h3>
+        <span class="desc">${esc(o ? o.code : '')} · ${esc(t.opName)}</span>
       </div>
-    </div>
-    <div class="card">
-      <div class="card-h"><h3>候选工作中心</h3><span class="desc">具备该工序能力</span></div>
-      <div class="card-b tight">
-        ${table(
-          [
-            {
-              title: '工作中心',
-              render: (c) => `<b>${esc(c.name)}</b>${c.id === t.workCenterId ? badge('当前', 'info') : ''}<div class="small">${num(capacityFor(c, op))} 件/日</div>`,
-            },
-            {
-              title: '近日负荷',
-              render: (c) => {
-                const cap = capacityFor(c, op);
-                const used = loadByCenterDate[`${c.id}|${t.startDate}`] || 0;
-                return `<div class="bar-w-sm">${bar(cap ? used / cap : 0, cap && used > cap ? 'danger' : '')}</div>`;
-              },
-            },
-            {
-              title: '',
-              render: (c) =>
-                c.id === t.workCenterId
-                  ? '<span class="small muted">—</span>'
-                  : `<button class="btn sm" data-apply-center="${t.id}" data-wc="${c.id}">改派</button>`,
-            },
-          ],
-          cands
-        )}
-      </div>
-    </div>
-    <div class="card">
       <div class="card-b">
-        <div class="small mb-2">可调整项：工序日期、工作中心、数量。修改后系统重新校验硬约束，命中则不允许保存。</div>
+        <div class="fact-list">
+          <div class="fact"><span class="f-k">当前工作中心</span><span class="f-v">${esc(wc ? wc.name : '—')}</span></div>
+          <div class="fact"><span class="f-k">计划日期</span><span class="f-v mono-s">${esc(t.startDate)} → ${esc(t.endDate)}</span></div>
+          <div class="fact"><span class="f-k">计划数量</span><span class="f-v">${num(t.planQty)} 件</span></div>
+          <div class="fact"><span class="f-k">日产能</span><span class="f-v">${num(capacityFor(wc, op))} 件/日</span></div>
+        </div>
+      </div>
+      <div class="sec-head">候选工作中心<span class="small">具备该工序能力</span></div>
+      <div class="cand-list">
+        ${cands
+          .map((c) => {
+            const cap = capacityFor(c, op);
+            const used = loadByCenterDate[`${c.id}|${t.startDate}`] || 0;
+            const mine = c.id === t.workCenterId;
+            const pct = cap ? Math.round((used / cap) * 100) : 0;
+            const over = cap && used > cap;
+            return `<div class="cand ${mine ? 'is-current' : ''}">
+              <div class="cand-top"><b>${esc(c.name)}</b>${mine ? badge('当前', 'info') : ''}</div>
+              <div class="cand-bot">
+                <span class="small nowrap">${num(cap)} 件/日</span>
+                <div class="bar-w-sm" title="当日已排 ${num(used)} 件 / 产能 ${num(cap)} 件">${bar(cap ? used / cap : 0, over ? 'danger' : '')}</div>
+                ${
+                  mine
+                    ? `<span class="small nowrap ${over ? 'c-danger' : 'muted'}" title="当日负荷">${cap ? pct + '%' : '—'}</span>`
+                    : `<button class="btn sm" data-apply-center="${t.id}" data-wc="${c.id}">改派</button>`
+                }
+              </div>
+            </div>`;
+          })
+          .join('')}
+      </div>
+      <div class="card-f">
+        <div class="small">可调整项：工序日期、工作中心、数量。修改后重新校验硬约束，命中则不允许保存。</div>
         <button class="btn w-100" data-edit="${t.id}">调整该工序</button>
       </div>
     </div>`;
